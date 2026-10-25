@@ -232,6 +232,32 @@ public:
     u8 lastOpcode() const;
 
     /**
+     * @brief Snapshot of the register file and the control flags of the CPU.
+     */
+    struct CpuState {
+        Registers regs;                      /**< Register file. */
+        bool ime = false;                    /**< Interrupt master enable. */
+        bool imeScheduled = false;           /**< EI executed, IME after next instruction. */
+        bool halted = false;                 /**< HALT state. */
+        bool stopped = false;                /**< STOP state. */
+        std::uint64_t instructions = 0;      /**< Executed instruction counter. */
+        u16 lastAddress = 0;                 /**< Address of the last executed instruction. */
+        u8 lastOpcode = 0;                   /**< Opcode of the last executed instruction. */
+    };
+
+    /**
+     * @brief Returns a copy of the complete CPU state.
+     * @return The registers and the control flags.
+     */
+    CpuState cpuState() const;
+
+    /**
+     * @brief Restores the CPU from a previously captured state.
+     * @param state The state returned by cpuState().
+     */
+    void restoreCpuState(const CpuState &state);
+
+    /**
      * @brief Returns a disassembly of the instruction at an address.
      * @param address The address to decode.
      * @return A string such as "LD A,0x12".

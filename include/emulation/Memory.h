@@ -81,6 +81,28 @@ public:
     };
 
     /**
+     * @brief Snapshot of the memory bus state needed to resume emulation.
+     */
+    struct MemoryState {
+        std::array<u8, kVideoRamSize> vram{};   /**< Video RAM. */
+        std::array<u8, kWorkRamSize> wram{};    /**< Work RAM. */
+        std::array<u8, 0xA0> oam{};             /**< Object attribute memory. */
+        std::array<u8, 0x80> io{};              /**< I/O registers 0xFF00-0xFF7F. */
+        std::array<u8, kHighRamSize> hram{};    /**< High RAM. */
+        TimerRegisters timer;                   /**< Timer state. */
+        SerialRegisters serial;                 /**< Serial port state. */
+        std::vector<u8> cartRam;                /**< Cartridge RAM contents. */
+        u8 joypadSelect = 0x30;                 /**< Joypad selection bits. */
+        u8 joypadButtons = 0xFF;                /**< Pressed buttons (0 = pressed). */
+        u8 romBank = 1;                         /**< Currently selected ROM bank. */
+        u8 ramBank = 0;                         /**< Currently selected RAM bank. */
+        bool ramEnabled = false;                /**< Cartridge RAM enable flag. */
+        bool bankingMode = false;               /**< MBC1 advanced banking mode. */
+        bool bootRomEnabled = true;             /**< Boot ROM mapping flag. */
+        u8 ie = 0;                              /**< Interrupt enable backup (0xFFFF). */
+    };
+
+    /**
      * @brief Constructs an empty bus with no cartridge inserted.
      */
     Memory();
@@ -260,6 +282,18 @@ public:
      * @return Pointer to the 8 KiB of WRAM.
      */
     const u8 *workRam() const;
+
+    /**
+     * @brief Returns a copy of the complete memory bus state.
+     * @return The RAM arrays, the registers and the mapper state.
+     */
+    MemoryState memoryState() const;
+
+    /**
+     * @brief Restores the bus from a previously captured state.
+     * @param state The state returned by memoryState().
+     */
+    void restoreMemoryState(const MemoryState &state);
 
 private:
     /**

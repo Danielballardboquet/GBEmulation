@@ -321,6 +321,24 @@ public:
     void loadSaveData(const std::vector<u8> &data);
 
     /**
+     * @brief Serializes the complete machine state into a byte array.
+     *
+     * The byte array is self contained (CPU, memory, GPU, interrupts, timer and
+     * cartridge RAM) and can be stored in a .state file next to the ROM.
+     * @return The raw state data.
+     */
+    std::vector<u8> saveState() const;
+
+    /**
+     * @brief Restores the machine from a byte array produced by saveState().
+     * @param data The state data.
+     * @param error Receives a message when the data is invalid or was saved
+     *              with a different cartridge.
+     * @return True when the state was restored.
+     */
+    bool loadState(const std::vector<u8> &data, std::string &error);
+
+    /**
      * @brief Presses or releases a button of the joypad.
      * @param index Button index (0 = right, 1 = left, 2 = up, 3 = down,
      *              4 = A, 5 = B, 6 = select, 7 = start).

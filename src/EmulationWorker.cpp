@@ -223,6 +223,50 @@ void EmulationWorker::loadBatteryRam(const QString &path)
     m_emulator->loadSaveData(std::vector<gb::u8>(bytes.constBegin(), bytes.constEnd()));
 }
 
+void EmulationWorker::saveState(const QString &path)
+{
+    if (!m_emulator || path.isEmpty()) {
+        emit stateSaveFailed(tr("No emulator is available"));
+        return;
+    }
+    const std::vector<gb::u8> state = m_emulator->saveState();
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        emit stateSaveFailed(tr("Cannot open %1 for writing").arg(path));
+        return;
+    }
+    const qint64 written = file.write(reinterpret_cast<const char *>(state.data()),
+                                      static_cast<qint64>(state.size()));
+    if (written != static_cast<qint64>(state.size())) {
+        emit stateSaveFailed(tr("Could not write the state file %1").arg(path));
+        return;
+    }
+    emit stateSaved(path);
+}
+
+void EmulationWorker::loadState(const QString &path)
+{
+    if (!m_emulator || path.isEmpty()) {
+        emit stateLoadFailed(tr("No emulator is available"));
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        emit stateLoadFailed(tr("Cannot open %1 for reading").arg(path));
+        return;
+    }
+    const QByteArray bytes = file.readAll();
+    std::string error;
+    if (!m_emulator->loadState(
+            std::vector<gb::u8>(bytes.constBegin(), bytes.constEnd()), error)) {
+        emit stateLoadFailed(QString::fromStdString(error));
+        return;
+    }
+    // Refresh the screen with the restored framebuffer.
+    emitFrame();
+    emit stateLoaded(path);
+}
+
 void EmulationWorker::shutdown()
 {
     m_shutdown.store(true);

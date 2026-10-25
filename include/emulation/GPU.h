@@ -205,6 +205,48 @@ public:
      */
     std::array<u32, 4> activePaletteColors() const;
 
+    /**
+     * @brief Snapshot of the LCD registers and render state of the GPU.
+     */
+    struct GpuState {
+        u8 lcdc = 0x91;   /**< LCD control (0xFF40). */
+        u8 stat = 0x85;   /**< LCD status (0xFF41). */
+        u8 scy = 0;       /**< Background scroll Y (0xFF42). */
+        u8 scx = 0;       /**< Background scroll X (0xFF43). */
+        u8 ly = 0;        /**< Current scanline (0xFF44). */
+        u8 lyc = 0;       /**< Scanline comparison (0xFF45). */
+        u8 bgp = 0xFC;    /**< Background palette (0xFF47). */
+        u8 obp0 = 0xFF;   /**< Sprite palette 0 (0xFF48). */
+        u8 obp1 = 0xFF;   /**< Sprite palette 1 (0xFF49). */
+        u8 wy = 0;        /**< Window Y (0xFF4A). */
+        u8 wx = 0;        /**< Window X (0xFF4B). */
+        u8 dma = 0xFF;    /**< DMA register (0xFF46). */
+        u8 bgpi = 0;      /**< Background palette index (0xFF68). */
+        u8 obpi = 0;      /**< Sprite palette index (0xFF6A). */
+        int dot = 0;      /**< Dot counter inside the current line. */
+        int mode = 2;     /**< Current LCD mode. */
+        int windowLine = 0; /**< Line of the window currently being drawn. */
+        int spritesOnLine = 0; /**< Sprites drawn on the last line. */
+        std::uint64_t frameCount = 0;      /**< Number of rendered frames. */
+        std::uint64_t disabledFrames = 0;  /**< Frames skipped with the LCD off. */
+        bool statLine = false; /**< Previous state of the STAT interrupt line. */
+        std::array<u8, kBackgroundPaletteSize> bgPaletteRam{}; /**< Background palette RAM. */
+        std::array<u8, kSpritePaletteSize> objPaletteRam{};    /**< Sprite palette RAM. */
+        std::vector<u8> frameBuffer;       /**< RGBA framebuffer. */
+    };
+
+    /**
+     * @brief Returns a copy of the complete GPU state.
+     * @return The registers, the timing counters and the framebuffer.
+     */
+    GpuState gpuState() const;
+
+    /**
+     * @brief Restores the GPU from a previously captured state.
+     * @param state The state returned by gpuState().
+     */
+    void restoreGpuState(const GpuState &state);
+
 private:
     /**
      * @brief Renders the scanline selected by LY into the framebuffer.
@@ -292,7 +334,7 @@ private:
     std::vector<u8> m_frameBuffer;                         /**< RGBA framebuffer. */
     std::array<u8, kScreenWidth> m_lineColors;             /**< Color index of the current line. */
     std::array<bool, kScreenWidth> m_linePriority;         /**< Background priority per pixel. */
-    std::array<u32, 4> m_customPalette = {0xFFFFFFFF, 0xAAAAAAFF, 0x555555FF, 0x000000FF}; /**< User shades. */
+    std::array<u32, 4> m_customPalette = {0xE0E0E0FF, 0xA0A0A0FF, 0x606060FF, 0x202020FF}; /**< User shades (index 0 = lightest). */
     DisplayPalette m_displayPalette = DisplayPalette::Dmg; /**< Active colour source. */
     Memory *m_memory = nullptr;                            /**< Attached memory bus. */
     InterruptController *m_interrupts = nullptr;           /**< Attached interrupts. */

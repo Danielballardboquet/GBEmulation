@@ -128,6 +128,18 @@ public slots:
     void loadBatteryRam(const QString &path);
 
     /**
+     * @brief Writes the current machine state to a .state file.
+     * @param path Path of the .state file.
+     */
+    void saveState(const QString &path);
+
+    /**
+     * @brief Restores the machine state from a .state file.
+     * @param path Path of the .state file.
+     */
+    void loadState(const QString &path);
+
+    /**
      * @brief Stops the frame loop and releases the emulator.
      */
     void shutdown();
@@ -166,6 +178,30 @@ signals:
      * @param running True when the frame loop is running.
      */
     void runningChanged(bool running);
+
+    /**
+     * @brief Emitted after the machine state has been written to disk.
+     * @param path Path of the .state file.
+     */
+    void stateSaved(const QString &path);
+
+    /**
+     * @brief Emitted when the machine state could not be written.
+     * @param error Description of the failure.
+     */
+    void stateSaveFailed(const QString &error);
+
+    /**
+     * @brief Emitted after the machine state has been restored.
+     * @param path Path of the .state file.
+     */
+    void stateLoaded(const QString &path);
+
+    /**
+     * @brief Emitted when the machine state could not be restored.
+     * @param error Description of the failure.
+     */
+    void stateLoadFailed(const QString &error);
 
 private slots:
     /**

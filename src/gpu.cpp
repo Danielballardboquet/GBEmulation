@@ -347,6 +347,64 @@ std::vector<u8> GPU::snapshot() const
     return m_frameBuffer;
 }
 
+GPU::GpuState GPU::gpuState() const
+{
+    GpuState state;
+    state.lcdc = m_lcdc;
+    state.stat = m_stat;
+    state.scy = m_scy;
+    state.scx = m_scx;
+    state.ly = m_ly;
+    state.lyc = m_lyc;
+    state.bgp = m_bgp;
+    state.obp0 = m_obp0;
+    state.obp1 = m_obp1;
+    state.wy = m_wy;
+    state.wx = m_wx;
+    state.dma = m_dma;
+    state.bgpi = m_bgpi;
+    state.obpi = m_obpi;
+    state.dot = m_dot;
+    state.mode = m_mode;
+    state.windowLine = m_windowLine;
+    state.spritesOnLine = m_spritesOnLine;
+    state.frameCount = m_frameCount;
+    state.disabledFrames = m_disabledFrames;
+    state.statLine = m_statLine;
+    state.bgPaletteRam = m_bgPaletteRam;
+    state.objPaletteRam = m_objPaletteRam;
+    state.frameBuffer = m_frameBuffer;
+    return state;
+}
+
+void GPU::restoreGpuState(const GPU::GpuState &state)
+{
+    m_lcdc = state.lcdc;
+    m_stat = state.stat;
+    m_scy = state.scy;
+    m_scx = state.scx;
+    m_ly = state.ly;
+    m_lyc = state.lyc;
+    m_bgp = state.bgp;
+    m_obp0 = state.obp0;
+    m_obp1 = state.obp1;
+    m_wy = state.wy;
+    m_wx = state.wx;
+    m_dma = state.dma;
+    m_bgpi = state.bgpi;
+    m_obpi = state.obpi;
+    m_dot = state.dot;
+    m_mode = state.mode;
+    m_windowLine = state.windowLine;
+    m_spritesOnLine = state.spritesOnLine;
+    m_frameCount = state.frameCount;
+    m_disabledFrames = state.disabledFrames;
+    m_statLine = state.statLine;
+    m_bgPaletteRam = state.bgPaletteRam;
+    m_objPaletteRam = state.objPaletteRam;
+    m_frameBuffer = state.frameBuffer;
+}
+
 void GPU::renderLine()
 {
     m_lineColors.fill(0);
@@ -511,8 +569,9 @@ std::array<u32, 4> GPU::activePaletteColors() const
 {
     switch (m_displayPalette) {
     case DisplayPalette::Gbc:
-        // Colours seen on the blue-green LCD of the Game Boy Color.
-        return {0xF4FCFCFF, 0x8CC8D8FF, 0x4A8CA8FF, 0x14324AFF};
+        // Authentic palette of the Game Boy Color used to colourise
+        // monochrome games: a yellow-green ramp instead of a single hue.
+        return {0xE0F8D0FF, 0x88C070FF, 0x346856FF, 0x081820FF};
     case DisplayPalette::Custom:
         return m_customPalette;
     case DisplayPalette::Dmg:

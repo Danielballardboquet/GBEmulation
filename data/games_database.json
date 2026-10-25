@@ -1,0 +1,191 @@
+{
+  "games": [
+    {
+      "title": "POKEMON BLUE",
+      "full_name": "Pokémon Blue Version",
+      "developer": "Game Freak",
+      "publisher": "Nintendo",
+      "release_year": 1996,
+      "genre": "RPG",
+      "players": "1",
+      "description": "Catch, train, and battle Pokémon in the Kanto region. One of the original Pokémon games that started the global phenomenon.",
+      "rating": "E"
+    },
+    {
+      "title": "POKEMON RED",
+      "full_name": "Pokémon Red Version",
+      "developer": "Game Freak",
+      "publisher": "Nintendo",
+      "release_year": 1996,
+      "genre": "RPG",
+      "players": "1",
+      "description": "The companion to Pokémon Blue, featuring exclusive Pokémon and the same beloved gameplay.",
+      "rating": "E"
+    },
+    {
+      "title": "POKEMON YELLOW",
+      "full_name": "Pokémon Yellow Version: Special Pikachu Edition",
+      "developer": "Game Freak",
+      "publisher": "Nintendo",
+      "release_year": 1998,
+      "genre": "RPG",
+      "players": "1",
+      "description": "Enhanced version based on the anime, with Pikachu as your starter Pokémon following you around.",
+      "rating": "E"
+    },
+    {
+      "title": "ZELDA",
+      "full_name": "The Legend of Zelda: Link's Awakening",
+      "developer": "Nintendo",
+      "publisher": "Nintendo",
+      "release_year": 1993,
+      "genre": "Action-Adventure",
+      "players": "1",
+      "description": "Link awakens on a mysterious island and must find a way to escape. A classic Zelda adventure.",
+      "rating": "E"
+    },
+    {
+      "title": "SUPER MARIOLAND",
+      "full_name": "Super Mario Land",
+      "developer": "Nintendo",
+      "publisher": "Nintendo",
+      "release_year": 1989,
+      "genre": "Platformer",
+      "players": "1",
+      "description": "Mario's first Game Boy adventure in the exotic Sarasaland. Classic platforming action.",
+      "rating": "E"
+    },
+    {
+      "title": "TETRIS",
+      "full_name": "Tetris",
+      "developer": "Nintendo",
+      "publisher": "Nintendo",
+      "release_year": 1989,
+      "genre": "Puzzle",
+      "players": "1-2",
+      "description": "The legendary puzzle game that helped make the Game Boy a success. Arrange falling blocks to clear lines.",
+      "rating": "E"
+    },
+    {
+      "title": "KIRBY",
+      "full_name": "Kirby's Dream Land",
+      "developer": "HAL Laboratory",
+      "publisher": "Nintendo",
+      "release_year": 1992,
+      "genre": "Platformer",
+      "players": "1",
+      "description": "Kirby's debut adventure. Inhale enemies and float through Dream Land to save the day.",
+      "rating": "E"
+    },
+    {
+      "title": "METROID2",
+      "full_name": "Metroid II: Return of Samus",
+      "developer": "Nintendo",
+      "publisher": "Nintendo",
+      "release_year": 1991,
+      "genre": "Action-Adventure",
+      "players": "1",
+      "description": "Samus returns to planet SR388 to exterminate the Metroid threat. Exploration and action combined.",
+      "rating": "E"
+    },
+    {
+      "title": "DONKEY KONG",
+      "full_name": "Donkey Kong",
+      "developer": "Nintendo",
+      "publisher": "Nintendo",
+      "release_year": 1994,
+      "genre": "Puzzle-Platformer",
+      "players": "1",
+      "description": "Mario must rescue Pauline from Donkey Kong in this puzzle-platformer remake of the arcade classic.",
+      "rating": "E"
+    },
+    {
+      "title": "DUCKTALES",
+      "full_name": "DuckTales",
+      "developer": "Capcom",
+      "publisher": "Capcom",
+      "release_year": 1990,
+      "genre": "Platformer",
+      "players": "1",
+      "description": "Join Scrooge McDuck on a treasure-hunting adventure across the world. Pogo-stick your way to riches!",
+      "rating": "E"
+    },
+    {
+      "title": "MEGA MAN",
+      "full_name": "Mega Man: Dr. Wily's Revenge",
+      "developer": "Capcom",
+      "publisher": "Capcom",
+      "release_year": 1991,
+      "genre": "Action-Platformer",
+      "players": "1",
+      "description": "The Blue Bomber's first Game Boy adventure. Defeat Robot Masters and steal their weapons.",
+      "rating": "E"
+    },
+    {
+      "title": "CASTLEVANIA",
+      "full_name": "Castlevania: The Adventure",
+      "developer": "Konami",
+      "publisher": "Konami",
+      "release_year": 1989,
+      "genre": "Action-Platformer",
+      "players": "1",
+      "description": "Christopher Belmont battles Dracula in this challenging platformer. Whip your way through Transylvania.",
+      "rating": "E10+"
+    },
+    {
+      "title": "FINAL FANTASY",
+      "full_name": "Final Fantasy Adventure",
+      "developer": "Square",
+      "publisher": "Square",
+      "release_year": 1991,
+      "genre": "Action-RPG",
+      "players": "1",
+      "description": "The first game in the Mana series. Action-RPG gameplay with a compelling story.",
+      "rating": "E"
+    },
+    {
+      "title": "WARIO LAND",
+      "full_name": "Wario Land: Super Mario Land 3",
+      "developer": "Nintendo",
+      "publisher": "Nintendo",
+      "release_year": 1994,
+      "genre": "Platformer",
+      "players": "1",
+      "description": "Wario's first starring role. Collect coins and treasures in this unique platformer.",
+      "rating": "E"
+    },
+    {
+      "title": "POKEMON GOLD",
+      "full_name": "Pokémon Gold Version",
+      "developer": "Game Freak",
+      "publisher": "Nintendo",
+      "release_year": 1999,
+      "genre": "RPG",
+      "players": "1",
+      "description": "Explore the Johto region with 100 new Pokémon, day/night cycles, and breeding mechanics.",
+      "rating": "E"
+    },
+    {
+      "title": "POKEMON SILVER",
+      "full_name": "Pokémon Silver Version",
+      "developer": "Game Freak",
+      "publisher": "Nintendo",
+      "release_year": 1999,
+      "genre": "RPG",
+      "players": "1",
+      "description": "The companion to Pokémon Gold with exclusive Pokémon and the same enhanced features.",
+      "rating": "E"
+    },
+    {
+      "title": "POKEMON CRYSTAL",
+      "full_name": "Pokémon Crystal Version",
+      "developer": "Game Freak",
+      "publisher": "Nintendo",
+      "release_year": 2000,
+      "genre": "RPG",
+      "players": "1",
+      "description": "Enhanced version of Gold/Silver with animated sprites and the Battle Tower.",
+      "rating": "E"
+    }
+  ]
+}

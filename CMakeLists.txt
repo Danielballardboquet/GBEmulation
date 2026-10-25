@@ -93,3 +93,122 @@ else()
     message(WARNING "Doxygen not found. Documentation generation will not be available.")
     message(WARNING "Install Doxygen from https://www.doxygen.nl/download.html")
 endif()
+
+# CPack configuration for creating installers
+include(InstallRequiredSystemLibraries)
+
+set(CPACK_PACKAGE_NAME "GB_emulator")
+set(CPACK_PACKAGE_VENDOR "GB Emulator Team")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Game Boy (DMG/CGB) Emulator")
+set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "GB_emulator")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+
+# Install the executable
+install(TARGETS GB_emulator
+    RUNTIME DESTINATION bin
+    BUNDLE DESTINATION .
+)
+
+# Install Qt dependencies
+if(WIN32)
+    # Get Qt deployment tool path
+    get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
+    
+    if(WINDEPLOYQT_EXECUTABLE)
+        install(CODE "
+            execute_process(
+                COMMAND \"${WINDEPLOYQT_EXECUTABLE}\" \"\${CMAKE_INSTALL_PREFIX}/bin/GB_emulator.exe\" --no-compiler-runtime
+                WORKING_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/bin\"
+            )
+        ")
+    endif()
+elseif(APPLE)
+    # Get Qt deployment tool path
+    get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
+    find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${QT_BIN_DIR}")
+    
+    if(MACDEPLOYQT_EXECUTABLE)
+        install(CODE "
+            execute_process(
+                COMMAND \"${MACDEPLOYQT_EXECUTABLE}\" \"\${CMAKE_INSTALL_PREFIX}/GB_emulator.app\"
+            )
+        ")
+    endif()
+endif()
+
+# Install stylesheets
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/style"
+    DESTINATION bin
+)
+
+# Install ROM folder (if exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ROM")
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/ROM"
+        DESTINATION bin
+    )
+endif()
+
+# Install data folder (if exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/data")
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data"
+        DESTINATION bin
+    )
+endif()
+
+# Platform-specific packaging
+if(WIN32)
+    set(CPACK_GENERATOR "NSIS;ZIP")
+    set(CPACK_NSIS_DISPLAY_NAME "Game Boy Emulator")
+    set(CPACK_NSIS_PACKAGE_NAME "GB_emulator")
+    set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+    set(CPACK_NSIS_MODIFY_PATH ON)
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/icon.ico")
+    set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_SOURCE_DIR}/icon.ico")
+    set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\\\GB_emulator.exe")
+    set(CPACK_NSIS_HELP_LINK "https://github.com/yourusername/GB_emulator")
+    set(CPACK_NSIS_URL_INFO_ABOUT "https://github.com/yourusername/GB_emulator")
+    set(CPACK_NSIS_CONTACT "your.email@example.com")
+    set(CPACK_NSIS_CREATE_ICONS_EXTRA
+        "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\GB Emulator.lnk' '$INSTDIR\\\\bin\\\\GB_emulator.exe'"
+    )
+    set(CPACK_NSIS_DELETE_ICONS_EXTRA
+        "Delete '$SMPROGRAMS\\\\$START_MENU_FOLDER\\\\GB Emulator.lnk'"
+    )
+elseif(APPLE)
+    set(CPACK_GENERATOR "DragNDrop;TGZ")
+    set(CPACK_DMG_VOLUME_NAME "GB Emulator")
+    set(CPACK_DMG_FORMAT "UDBZ")
+    set(CPACK_DMG_BACKGROUND_IMAGE "${CMAKE_CURRENT_SOURCE_DIR}/dmg_background.png")
+    set(CPACK_BUNDLE_NAME "GB_emulator")
+    set(CPACK_BUNDLE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/icon.icns")
+    set(CPACK_BUNDLE_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist")
+elseif(UNIX)
+    set(CPACK_GENERATOR "DEB;RPM;TGZ")
+    
+    # Debian package settings
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "GB Emulator Team <your.email@example.com>")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "games")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libqt6widgets6")
+    
+    # RPM package settings
+    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+    set(CPACK_RPM_PACKAGE_GROUP "Amusements/Games")
+    set(CPACK_RPM_PACKAGE_REQUIRES "qt6-qtbase >= 6.0")
+endif()
+
+# Android packaging (requires Qt for Android)
+if(ANDROID)
+    set(CPACK_GENERATOR "TGZ")
+    # Android packaging is typically handled by Qt Creator or gradle
+    # This is a placeholder for future Android support
+endif()
+
+include(CPack)

@@ -357,6 +357,48 @@ void GameWindow::saveBatteryRam()
     statusBar()->showMessage(tr("Battery RAM saved to %1").arg(path), 3000);
 }
 
+void GameWindow::saveState()
+{
+    const QString path = currentStatePath();
+    if (path.isEmpty()) {
+        statusBar()->showMessage(tr("Load a ROM before saving a state"), 2500);
+        return;
+    }
+    QMetaObject::invokeMethod(m_worker, "saveState", Qt::QueuedConnection,
+                              Q_ARG(QString, path));
+}
+
+void GameWindow::loadState()
+{
+    const QString path = currentStatePath();
+    if (path.isEmpty()) {
+        statusBar()->showMessage(tr("Load a ROM before loading a state"), 2500);
+        return;
+    }
+    QMetaObject::invokeMethod(m_worker, "loadState", Qt::QueuedConnection,
+                              Q_ARG(QString, path));
+}
+
+void GameWindow::onStateSaved(const QString &path)
+{
+    statusBar()->showMessage(tr("State saved to %1").arg(path), 3000);
+}
+
+void GameWindow::onStateSaveFailed(const QString &error)
+{
+    statusBar()->showMessage(tr("Could not save the state: %1").arg(error), 4000);
+}
+
+void GameWindow::onStateLoaded(const QString &path)
+{
+    statusBar()->showMessage(tr("State loaded from %1").arg(path), 3000);
+}
+
+void GameWindow::onStateLoadFailed(const QString &error)
+{
+    statusBar()->showMessage(tr("Could not load the state: %1").arg(error), 4000);
+}
+
 void GameWindow::takeScreenshot()
 {
     if (!m_worker || !m_worker->emulator() || !m_worker->emulator()->isRunning()) {
@@ -437,6 +479,8 @@ void GameWindow::onRomLoaded(const QString &title, const QString &mapper, int ro
     m_pauseAction->setEnabled(true);
     m_stepAction->setEnabled(false);
     m_frameAction->setEnabled(false);
+    m_saveStateAction->setEnabled(true);
+    m_loadStateAction->setEnabled(true);
 
     statusBar()->showMessage(
         tr("Loaded %1 (%2 ROM banks, %3 RAM banks)").arg(title).arg(romBanks).arg(ramBanks),
@@ -517,7 +561,6 @@ void GameWindow::createActions()
     connect(m_pauseAction, &QAction::triggered, this, &GameWindow::togglePause);
 
     m_stepAction = new QAction(tr("Step &Instruction"), this);
-    m_stepAction->setShortcut(QKeySequence(Qt::Key_F5));
     m_stepAction->setStatusTip(tr("Execute a single CPU instruction while paused"));
     m_stepAction->setEnabled(false);
     connect(m_stepAction, &QAction::triggered, this, &GameWindow::stepInstruction);
@@ -532,6 +575,18 @@ void GameWindow::createActions()
     m_screenshotAction->setShortcut(QKeySequence(Qt::Key_F12));
     m_screenshotAction->setStatusTip(tr("Save a PNG of the current screen"));
     connect(m_screenshotAction, &QAction::triggered, this, &GameWindow::takeScreenshot);
+
+    m_saveStateAction = new QAction(tr("&Save State"), this);
+    m_saveStateAction->setShortcut(QKeySequence(Qt::Key_F5));
+    m_saveStateAction->setStatusTip(tr("Save the machine state to a .state file next to the ROM"));
+    m_saveStateAction->setEnabled(false);
+    connect(m_saveStateAction, &QAction::triggered, this, &GameWindow::saveState);
+
+    m_loadStateAction = new QAction(tr("&Load State"), this);
+    m_loadStateAction->setShortcut(QKeySequence(Qt::Key_F9));
+    m_loadStateAction->setStatusTip(tr("Restore the machine state from a .state file next to the ROM"));
+    m_loadStateAction->setEnabled(false);
+    connect(m_loadStateAction, &QAction::triggered, this, &GameWindow::loadState);
 
     m_debugAction = new QAction(tr("&Debugger"), this);
     m_debugAction->setCheckable(true);
@@ -581,6 +636,9 @@ void GameWindow::createActions()
     emulationMenu->addAction(m_frameAction);
     emulationMenu->addSeparator();
     emulationMenu->addAction(m_screenshotAction);
+    emulationMenu->addSeparator();
+    emulationMenu->addAction(m_saveStateAction);
+    emulationMenu->addAction(m_loadStateAction);
 
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     viewMenu->addAction(m_debugAction);
@@ -866,6 +924,10 @@ void GameWindow::startEmulationThread()
     connect(m_worker, &EmulationWorker::romFailed, this, &GameWindow::onRomFailed);
     connect(m_worker, &EmulationWorker::statisticsUpdated, this, &GameWindow::onStatisticsUpdated);
     connect(m_worker, &EmulationWorker::runningChanged, this, &GameWindow::onRunningChanged);
+    connect(m_worker, &EmulationWorker::stateSaved, this, &GameWindow::onStateSaved);
+    connect(m_worker, &EmulationWorker::stateSaveFailed, this, &GameWindow::onStateSaveFailed);
+    connect(m_worker, &EmulationWorker::stateLoaded, this, &GameWindow::onStateLoaded);
+    connect(m_worker, &EmulationWorker::stateLoadFailed, this, &GameWindow::onStateLoadFailed);
     connect(m_screen, &GBScreenWidget::buttonChanged, this, &GameWindow::onButtonChanged);
     connect(m_screen, &GBScreenWidget::uiActionTriggered, this, &GameWindow::onUiAction);
 
@@ -914,6 +976,17 @@ QString GameWindow::savePathFor(const QString &romPath)
 QString GameWindow::currentSavePath() const
 {
     return m_currentRom.isEmpty() ? QString() : savePathFor(m_currentRom);
+}
+
+QString GameWindow::statePathFor(const QString &romPath)
+{
+    const QFileInfo info(romPath);
+    return info.absoluteDir().filePath(info.completeBaseName() + QStringLiteral(".state"));
+}
+
+QString GameWindow::currentStatePath() const
+{
+    return m_currentRom.isEmpty() ? QString() : statePathFor(m_currentRom);
 }
 
 } // namespace ui

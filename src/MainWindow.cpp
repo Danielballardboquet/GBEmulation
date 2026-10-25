@@ -3,8 +3,12 @@
  * @brief Implementation of the launcher window with the ROM library.
  *
  * The window scans the configured library folders (recursively) for .gb and
- * .gbc files and shows them in a list with a short description parsed from the
- * cartridge header. Starting a game opens a separate GameWindow.
+ * .gbc files and shows them in a list. On startup the game database
+ * (data/games_database.json) is loaded and each ROM is matched to its entry
+ * by cartridge header title (file name as fallback), so the detail panel can
+ * show the full name, developer/publisher, release year, genre, rating and
+ * description. A search box filters the list and a combo box sorts it by
+ * name, year or genre.
  *
  * @see https://gbdev.io/pandocs/The_Cartridge_Header.html  ROM header layout
  */
@@ -18,6 +22,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QComboBox>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -25,12 +30,21 @@
 #include <QFileInfo>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QIcon>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QStatusBar>
 #include <QToolBar>
@@ -105,6 +119,109 @@ QString cartTypeName(std::uint8_t cartType)
     }
 }
 
+/**
+ * @brief Returns a comparison key: uppercase, spaces and punctuation removed.
+ * @param text The text to normalize.
+ * @return The normalized key, e.g. "pokemon blue" -> "POKEMONBLUE".
+ */
+QString normalizedKey(const QString &text)
+{
+    QString key = text.toUpper();
+    key.remove(QRegularExpression(QStringLiteral("[^A-Z0-9]")));
+    return key;
+}
+
+/**
+ * @brief Reads the cartridge header title of a ROM file.
+ * @param path Path of the ROM.
+ * @return The uppercase, trimmed title, or an empty string.
+ */
+QString headerTitle(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+    const QByteArray header = file.read(kHeaderTitleOffset + kHeaderTitleLength);
+    file.close();
+    if (header.size() < kHeaderTitleOffset + kHeaderTitleLength) {
+        return QString();
+    }
+    QByteArray title = header.mid(kHeaderTitleOffset, kHeaderTitleLength);
+    const int zero = title.indexOf(char(0));
+    if (zero >= 0) {
+        title.truncate(zero);
+    }
+    return QString::fromLatin1(title).trimmed().toUpper();
+}
+
+/**
+ * @brief Returns a representative color for a genre.
+ * @param genre The genre string, e.g. "RPG".
+ * @return The color used for the list icon.
+ */
+QColor genreColor(const QString &genre)
+{
+    const QString g = genre.toLower();
+    if (g.contains(QLatin1String("rpg"))) {
+        return QColor(0x7B, 0x4F, 0xC9);
+    }
+    if (g.contains(QLatin1String("puzzle"))) {
+        return QColor(0xE0, 0x8B, 0x2D);
+    }
+    if (g.contains(QLatin1String("platform"))) {
+        return QColor(0x2E, 0x8B, 0x57);
+    }
+    if (g.contains(QLatin1String("adventure")) || g.contains(QLatin1String("action"))) {
+        return QColor(0x2B, 0x6C, 0xB0);
+    }
+    if (g.contains(QLatin1String("racing")) || g.contains(QLatin1String("sport"))) {
+        return QColor(0xC0, 0x3A, 0x2B);
+    }
+    if (g.contains(QLatin1String("shoot")) || g.contains(QLatin1String("fight"))) {
+        return QColor(0x8B, 0x2B, 0x2B);
+    }
+    return QColor(0x55, 0x63, 0x72);
+}
+
+/**
+ * @brief Builds (and caches) a small colored icon for a genre.
+ * @param genre The genre string, e.g. "RPG".
+ * @return A rounded square icon with the genre initial.
+ */
+QIcon genreIcon(const QString &genre)
+{
+    static QHash<QString, QIcon> cache;
+    const QString key = genre.isEmpty() ? QStringLiteral("default") : genre;
+    const auto it = cache.constFind(key);
+    if (it != cache.constEnd()) {
+        return it.value();
+    }
+
+    constexpr int kIconSize = 32;
+    QPixmap pixmap(kIconSize, kIconSize);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(genreColor(genre));
+    painter.drawRoundedRect(1, 1, kIconSize - 2, kIconSize - 2, 7, 7);
+
+    QFont font = painter.font();
+    font.setBold(true);
+    font.setPixelSize(16);
+    painter.setFont(font);
+    painter.setPen(Qt::white);
+    const QString letter = genre.isEmpty() ? QStringLiteral("?")
+                                           : genre.left(1).toUpper();
+    painter.drawText(pixmap.rect(), Qt::AlignCenter, letter);
+    painter.end();
+
+    QIcon icon(pixmap);
+    cache.insert(key, icon);
+    return icon;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -113,6 +230,7 @@ MainWindow::MainWindow(QWidget *parent)
     createActions();
     createLayout();
 
+    loadGameDatabase();
     loadRecentFiles();
     updateRecentFilesMenu();
 
@@ -203,17 +321,80 @@ void MainWindow::updateDetail()
 {
     const QListWidgetItem *item = m_romList->currentItem();
     if (!item) {
-        m_detailLabel->setText(tr("Select a game to see its details."));
+        if (m_romList->count() == 0 && m_searchEdit
+            && !m_searchEdit->text().isEmpty()) {
+            m_detailLabel->setText(tr("No games match your search."));
+        } else {
+            m_detailLabel->setText(tr("Select a game to see its details."));
+        }
         return;
     }
+
     const QString path = item->data(Qt::UserRole).toString();
     const QFileInfo info(path);
     const qint64 sizeKiB = (info.size() + 1023) / 1024;
-    m_detailLabel->setText(tr("<b>%1</b><br>%2<br>%3 KiB &middot; %4")
-                               .arg(info.fileName())
-                               .arg(romDescription(path))
-                               .arg(sizeKiB)
-                               .arg(QDir::toNativeSeparators(info.absolutePath())));
+    const QJsonObject game = gameInfoForPath(path);
+
+    if (game.isEmpty()) {
+        // No database entry: keep the compact header description.
+        m_detailLabel->setText(tr("<b>%1</b><br>%2<br>%3 KiB &middot; %4")
+                                   .arg(info.fileName().toHtmlEscaped())
+                                   .arg(romDescription(path))
+                                   .arg(sizeKiB)
+                                   .arg(QDir::toNativeSeparators(info.absolutePath()).toHtmlEscaped()));
+        return;
+    }
+
+    const QString fullName = game.value(QLatin1String("full_name")).toString(info.fileName());
+    const QString developer = game.value(QLatin1String("developer")).toString();
+    const QString publisher = game.value(QLatin1String("publisher")).toString();
+    const int year = game.value(QLatin1String("release_year")).toInt();
+    const QString genre = game.value(QLatin1String("genre")).toString();
+    const QString players = game.value(QLatin1String("players")).toString();
+    const QString rating = game.value(QLatin1String("rating")).toString();
+    const QString description = game.value(QLatin1String("description")).toString();
+
+    QStringList meta;
+    if (year > 0) {
+        meta.append(QString::number(year));
+    }
+    if (!genre.isEmpty()) {
+        meta.append(genre.toHtmlEscaped());
+    }
+    if (!players.isEmpty()) {
+        meta.append(tr("%1 player(s)").arg(players));
+    }
+    if (!rating.isEmpty()) {
+        meta.append(tr("ESRB %1").arg(rating.toHtmlEscaped()));
+    }
+
+    QString team;
+    if (!developer.isEmpty()) {
+        team.append(developer.toHtmlEscaped());
+    }
+    if (!publisher.isEmpty()) {
+        if (!team.isEmpty()) {
+            team.append(QStringLiteral(" &middot; "));
+        }
+        team.append(publisher.toHtmlEscaped());
+    }
+    if (team.isEmpty()) {
+        team = romDescription(path).toHtmlEscaped();
+    }
+
+    QString html = QStringLiteral("<b>%1</b><br>").arg(fullName.toHtmlEscaped());
+    html += QStringLiteral("<span style=\"color:gray;\">%1</span><br>").arg(team);
+    if (!meta.isEmpty()) {
+        html += QStringLiteral("%1<br>").arg(meta.join(QStringLiteral(" &middot; ")));
+    }
+    html += QStringLiteral("<small>%1 &middot; %2 KiB &middot; %3</small>")
+                .arg(info.fileName().toHtmlEscaped())
+                .arg(sizeKiB)
+                .arg(QDir::toNativeSeparators(info.absolutePath()).toHtmlEscaped());
+    if (!description.isEmpty()) {
+        html += QStringLiteral("<br><br>%1").arg(description.toHtmlEscaped());
+    }
+    m_detailLabel->setText(html);
 }
 
 void MainWindow::openRecentFile()
@@ -363,17 +544,40 @@ void MainWindow::createLayout()
     subtitle->setObjectName(QStringLiteral("librarySubtitle"));
     layout->addWidget(subtitle);
 
+    // Search box and sort selector above the ROM list.
+    QHBoxLayout *searchRow = new QHBoxLayout(central);
+    m_searchEdit = new QLineEdit(central);
+    m_searchEdit->setPlaceholderText(tr("Search games..."));
+    m_searchEdit->setClearButtonEnabled(true);
+    m_searchEdit->setObjectName(QStringLiteral("librarySearch"));
+    m_searchEdit->setStatusTip(tr("Filter the library by name"));
+    m_sortCombo = new QComboBox(central);
+    m_sortCombo->setObjectName(QStringLiteral("librarySort"));
+    m_sortCombo->addItem(tr("Sort by Name"), 0);
+    m_sortCombo->addItem(tr("Sort by Year"), 1);
+    m_sortCombo->addItem(tr("Sort by Genre"), 2);
+    searchRow->addWidget(m_searchEdit, 1);
+    searchRow->addWidget(m_sortCombo);
+    layout->addLayout(searchRow);
+
     m_romList = new QListWidget(central);
     m_romList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_romList->setAlternatingRowColors(true);
+    m_romList->setIconSize(QSize(24, 24));
     m_romList->setStatusTip(tr("Double click a game to play it"));
     layout->addWidget(m_romList, 1);
 
-    m_detailLabel = new QLabel(tr("Select a game to see its details."), central);
+    QGroupBox *detailBox = new QGroupBox(tr("Details"), central);
+    detailBox->setObjectName(QStringLiteral("libraryDetailBox"));
+    QVBoxLayout *detailLayout = new QVBoxLayout(detailBox);
+    detailLayout->setContentsMargins(8, 4, 8, 4);
+    m_detailLabel = new QLabel(tr("Select a game to see its details."), detailBox);
     m_detailLabel->setObjectName(QStringLiteral("libraryDetail"));
     m_detailLabel->setWordWrap(true);
     m_detailLabel->setTextFormat(Qt::RichText);
-    layout->addWidget(m_detailLabel);
+    m_detailLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    detailLayout->addWidget(m_detailLabel);
+    layout->addWidget(detailBox);
 
     QHBoxLayout *buttons = new QHBoxLayout(central);
     QPushButton *startButton = new QPushButton(tr("Start"), central);
@@ -398,6 +602,9 @@ void MainWindow::createLayout()
     connect(openButton, &QPushButton::clicked, this, &MainWindow::chooseRom);
     connect(refreshButton, &QPushButton::clicked, this, &MainWindow::refreshLibrary);
     connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &MainWindow::applyFilterAndSort);
+    connect(m_sortCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) { applyFilterAndSort(); });
     connect(m_romList, &QListWidget::itemDoubleClicked, this,
             [this](QListWidgetItem *item) { startGame(item->data(Qt::UserRole).toString()); });
     connect(m_romList, &QListWidget::itemSelectionChanged, this, &MainWindow::updateDetail);
@@ -482,17 +689,180 @@ void MainWindow::scanLibrary()
     });
 
     m_romFiles = files;
-    m_romList->clear();
-    for (const QString &path : m_romFiles) {
-        const QFileInfo info(path);
-        QListWidgetItem *item = new QListWidgetItem(info.fileName(), m_romList);
-        item->setData(Qt::UserRole, path);
-        item->setToolTip(path);
+    applyFilterAndSort();
+}
+
+void MainWindow::loadGameDatabase()
+{
+    m_games.clear();
+
+    // Look for the database in the install layout (next to the executable),
+    // one level up (project root when running from build/), the current
+    // directory and the application path itself.
+    QDir appDir(QApplication::applicationDirPath());
+    QDir appParent = QDir(appDir);
+    appParent.cdUp();
+
+    QStringList candidates;
+    candidates.append(appDir.filePath(QStringLiteral("data/games_database.json")));
+    candidates.append(appDir.filePath(QStringLiteral("games_database.json")));
+    candidates.append(appParent.filePath(QStringLiteral("data/games_database.json")));
+    candidates.append(QDir::current().filePath(QStringLiteral("data/games_database.json")));
+
+    QString path;
+    for (const QString &candidate : candidates) {
+        if (QFile::exists(candidate)) {
+            path = candidate;
+            break;
+        }
+    }
+    if (path.isEmpty()) {
+        return;
     }
 
-    m_countLabel->setText(files.isEmpty()
-                              ? tr("No games found")
-                              : tr("%1 game(s) found").arg(files.size()));
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    file.close();
+
+    const QJsonArray games =
+        document.object().value(QLatin1String("games")).toArray();
+    for (const QJsonValue &value : games) {
+        const QJsonObject game = value.toObject();
+        const QString title = game.value(QLatin1String("title")).toString();
+        if (title.isEmpty()) {
+            continue;
+        }
+        m_games.insert(normalizedKey(title), game);
+    }
+}
+
+const QJsonObject MainWindow::gameInfoForPath(const QString &path) const
+{
+    // Primary match: the cartridge header title.
+    const QString titleKey = normalizedKey(headerTitle(path));
+    auto it = m_games.constFind(titleKey);
+    if (it != m_games.constEnd()) {
+        return it.value();
+    }
+
+    // Fallback match: the file name without the extension and without the
+    // usual " (USA)", " [Rev 1]" style release tags.
+    const QFileInfo info(path);
+    QString base = info.completeBaseName();
+    base.remove(QRegularExpression(QStringLiteral("\\s*\\([^)]*\\)")));
+    base.remove(QRegularExpression(QStringLiteral("\\s*\\[[^]]*\\]")));
+    it = m_games.constFind(normalizedKey(base));
+    if (it != m_games.constEnd()) {
+        return it.value();
+    }
+    return QJsonObject();
+}
+
+void MainWindow::applyFilterAndSort()
+{
+    struct Entry {
+        QString path;
+        QString name;
+        QString genre;
+        int year = 0;
+    };
+
+    const QString filter = m_searchEdit->text().trimmed();
+    const int sortMode = m_sortCombo->currentData().toInt();
+
+    QList<Entry> entries;
+    entries.reserve(m_romFiles.size());
+    for (const QString &path : m_romFiles) {
+        const QFileInfo info(path);
+        const QJsonObject game = gameInfoForPath(path);
+        QString name = info.fileName();
+        QString genre;
+        int year = 0;
+        if (!game.isEmpty()) {
+            name = game.value(QLatin1String("full_name")).toString(name);
+            genre = game.value(QLatin1String("genre")).toString();
+            year = game.value(QLatin1String("release_year")).toInt();
+        }
+
+        if (!filter.isEmpty()) {
+            const QString needle = normalizedKey(filter);
+            const QString haystack =
+                normalizedKey(name + QLatin1Char(' ') + info.completeBaseName());
+            if (!haystack.contains(needle)) {
+                continue;
+            }
+        }
+        entries.append({path, name, genre, year});
+    }
+
+    switch (sortMode) {
+    case 1: // Year, unknown years last.
+        std::stable_sort(entries.begin(), entries.end(),
+                         [](const Entry &a, const Entry &b) {
+            const int ay = a.year > 0 ? a.year : 2147483647;
+            const int by = b.year > 0 ? b.year : 2147483647;
+            if (ay != by) {
+                return ay < by;
+            }
+            return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
+        });
+        break;
+    case 2: // Genre, unknown genres last.
+        std::stable_sort(entries.begin(), entries.end(),
+                         [](const Entry &a, const Entry &b) {
+            const QString ag = a.genre.isEmpty() ? QStringLiteral("~") : a.genre;
+            const QString bg = b.genre.isEmpty() ? QStringLiteral("~") : b.genre;
+            const int cmp = QString::compare(ag, bg, Qt::CaseInsensitive);
+            if (cmp != 0) {
+                return cmp < 0;
+            }
+            return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
+        });
+        break;
+    default: // Name.
+        std::stable_sort(entries.begin(), entries.end(),
+                         [](const Entry &a, const Entry &b) {
+            return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
+        });
+        break;
+    }
+
+    // Remember the selection so it survives a re-filter/re-sort.
+    const QString previousPath = m_romList->currentItem()
+        ? m_romList->currentItem()->data(Qt::UserRole).toString()
+        : QString();
+
+    m_romList->clear();
+    for (const Entry &entry : entries) {
+        QListWidgetItem *item = new QListWidgetItem(entry.name, m_romList);
+        item->setData(Qt::UserRole, entry.path);
+        item->setIcon(genreIcon(entry.genre));
+        item->setToolTip(entry.path);
+    }
+
+    if (entries.isEmpty() && m_romFiles.isEmpty()) {
+        m_countLabel->setText(tr("No games found"));
+    } else if (filter.isEmpty()) {
+        m_countLabel->setText(tr("%1 game(s) found").arg(entries.size()));
+    } else {
+        m_countLabel->setText(
+            tr("%1 of %2 game(s)").arg(entries.size()).arg(m_romFiles.size()));
+    }
+
+    if (!previousPath.isEmpty()) {
+        for (int i = 0; i < m_romList->count(); ++i) {
+            if (m_romList->item(i)->data(Qt::UserRole).toString() == previousPath) {
+                m_romList->setCurrentRow(i);
+                break;
+            }
+        }
+    }
+    if (m_romList->currentRow() < 0 && m_romList->count() > 0) {
+        m_romList->setCurrentRow(0);
+    }
     updateDetail();
 }
 

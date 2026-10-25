@@ -568,6 +568,32 @@ u8 Opcode::lastOpcode() const
     return m_lastOpcode;
 }
 
+Opcode::CpuState Opcode::cpuState() const
+{
+    CpuState state;
+    state.regs = m_regs;
+    state.ime = m_ime;
+    state.imeScheduled = m_imeScheduled;
+    state.halted = m_halted;
+    state.stopped = m_stopped;
+    state.instructions = m_instructions;
+    state.lastAddress = m_lastAddress;
+    state.lastOpcode = m_lastOpcode;
+    return state;
+}
+
+void Opcode::restoreCpuState(const Opcode::CpuState &state)
+{
+    m_regs = state.regs;
+    m_ime = state.ime;
+    m_imeScheduled = state.imeScheduled;
+    m_halted = state.halted;
+    m_stopped = state.stopped;
+    m_instructions = state.instructions;
+    m_lastAddress = state.lastAddress;
+    m_lastOpcode = state.lastOpcode;
+}
+
 std::string Opcode::disassemble(u16 address) const
 {
     if (m_memory == nullptr) {

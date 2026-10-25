@@ -7,18 +7,28 @@
  * configured in the settings, recursively, and shows the .gb/.gbc files in a
  * list. Pressing Start (or double clicking an entry) opens a new GameWindow
  * where the game plays, so several games can be open at the same time.
+ *
+ * The window also loads the game database (data/games_database.json) on
+ * startup, matches each ROM to its database entry by title and shows rich
+ * details (full name, developer/publisher, year, genre, rating, description)
+ * in the detail panel. The library can be filtered with the search box and
+ * sorted by name, year or genre.
  */
 
 #ifndef GB_UI_MAINWINDOW_H
 #define GB_UI_MAINWINDOW_H
 
+#include <QHash>
+#include <QJsonObject>
 #include <QMainWindow>
 #include <QString>
 #include <QStringList>
 
 class QAction;
 class QActionGroup;
+class QComboBox;
 class QLabel;
+class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
 class QMenu;
@@ -85,7 +95,7 @@ private slots:
     void showAbout();
 
     /**
-     * @brief Updates the detail label for the selected ROM.
+     * @brief Updates the detail panel for the selected ROM.
      */
     void updateDetail();
 
@@ -129,6 +139,24 @@ private:
     void scanLibrary();
 
     /**
+     * @brief Loads the game database (data/games_database.json).
+     */
+    void loadGameDatabase();
+
+    /**
+     * @brief Returns the database entry matching a ROM file, matched by header
+     *        title first and by file name as a fallback.
+     * @param path Path of the ROM.
+     * @return The matching game entry, or an empty object when unknown.
+     */
+    const QJsonObject gameInfoForPath(const QString &path) const;
+
+    /**
+     * @brief Applies the search filter and the sort order to the ROM list.
+     */
+    void applyFilterAndSort();
+
+    /**
      * @brief Loads the recent files list from the settings.
      */
     void loadRecentFiles();
@@ -152,6 +180,8 @@ private:
     QListWidget *m_romList = nullptr;       /**< ROM library list. */
     QLabel *m_detailLabel = nullptr;        /**< Detail text of the selection. */
     QLabel *m_countLabel = nullptr;         /**< Status label with the ROM count. */
+    QLineEdit *m_searchEdit = nullptr;      /**< Search/filter box. */
+    QComboBox *m_sortCombo = nullptr;       /**< Sort order selector. */
     QAction *m_startAction = nullptr;       /**< Start selected game. */
     QAction *m_openAction = nullptr;        /**< Open ROM file. */
     QAction *m_refreshAction = nullptr;     /**< Rescan library. */
@@ -162,6 +192,7 @@ private:
     QMenu *m_recentMenu = nullptr;          /**< File > Recent files. */
     QStringList m_recentFiles;              /**< Recently opened ROMs. */
     QStringList m_romFiles;                 /**< Absolute paths of the library. */
+    QHash<QString, QJsonObject> m_games;    /**< Game database keyed by title. */
 };
 
 } // namespace ui

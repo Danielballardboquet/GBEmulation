@@ -116,6 +116,40 @@ private slots:
     void saveBatteryRam();
 
     /**
+     * @brief Saves the current machine state to the .state file next to the ROM.
+     */
+    void saveState();
+
+    /**
+     * @brief Loads the machine state from the .state file next to the ROM.
+     */
+    void loadState();
+
+    /**
+     * @brief Shows a status message after the machine state has been saved.
+     * @param path Path of the .state file.
+     */
+    void onStateSaved(const QString &path);
+
+    /**
+     * @brief Shows a status message when the machine state could not be saved.
+     * @param error Description of the failure.
+     */
+    void onStateSaveFailed(const QString &error);
+
+    /**
+     * @brief Shows a status message after the machine state has been loaded.
+     * @param path Path of the .state file.
+     */
+    void onStateLoaded(const QString &path);
+
+    /**
+     * @brief Shows a status message when the machine state could not be loaded.
+     * @param error Description of the failure.
+     */
+    void onStateLoadFailed(const QString &error);
+
+    /**
      * @brief Saves a PNG of the current framebuffer.
      */
     void takeScreenshot();
@@ -276,6 +310,19 @@ private:
      */
     QString currentSavePath() const;
 
+    /**
+     * @brief Returns the path of the .state file of a ROM.
+     * @param romPath Path of the ROM.
+     * @return The state file path (same name, .state extension).
+     */
+    static QString statePathFor(const QString &romPath);
+
+    /**
+     * @brief Returns the path of the state file of the current ROM.
+     * @return The state file path or an empty string.
+     */
+    QString currentStatePath() const;
+
     QThread *m_thread = nullptr;            /**< Emulation thread. */
     EmulationWorker *m_worker = nullptr;    /**< Worker living on the thread. */
     GBScreenWidget *m_screen = nullptr;     /**< LCD widget. */
@@ -288,6 +335,8 @@ private:
     QAction *m_openAction = nullptr;        /**< File > Open. */
     QAction *m_reloadAction = nullptr;      /**< File > Reload. */
     QAction *m_saveAction = nullptr;        /**< File > Save RAM. */
+    QAction *m_saveStateAction = nullptr;   /**< Emulation > Save state. */
+    QAction *m_loadStateAction = nullptr;   /**< Emulation > Load state. */
     QAction *m_quitAction = nullptr;        /**< File > Quit. */
     QAction *m_resetAction = nullptr;       /**< Emulation > Reset. */
     QAction *m_pauseAction = nullptr;       /**< Emulation > Pause. */

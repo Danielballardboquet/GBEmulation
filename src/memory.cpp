@@ -365,6 +365,48 @@ const u8 *Memory::workRam() const
     return m_wram.data();
 }
 
+Memory::MemoryState Memory::memoryState() const
+{
+    MemoryState state;
+    state.vram = m_vram;
+    state.wram = m_wram;
+    state.oam = m_oam;
+    state.io = m_io;
+    state.hram = m_hram;
+    state.timer = m_timer;
+    state.serial = m_serial;
+    state.cartRam = m_cart.ram;
+    state.joypadSelect = m_joypadSelect;
+    state.joypadButtons = m_joypadButtons;
+    state.romBank = m_romBank;
+    state.ramBank = m_ramBank;
+    state.ramEnabled = m_ramEnabled;
+    state.bankingMode = m_bankingMode;
+    state.bootRomEnabled = m_bootRomEnabled;
+    state.ie = m_ie;
+    return state;
+}
+
+void Memory::restoreMemoryState(const Memory::MemoryState &state)
+{
+    m_vram = state.vram;
+    m_wram = state.wram;
+    m_oam = state.oam;
+    m_io = state.io;
+    m_hram = state.hram;
+    m_timer = state.timer;
+    m_serial = state.serial;
+    m_cart.ram = state.cartRam;
+    m_joypadSelect = state.joypadSelect;
+    m_joypadButtons = state.joypadButtons;
+    m_romBank = state.romBank;
+    m_ramBank = state.ramBank;
+    m_ramEnabled = state.ramEnabled;
+    m_bankingMode = state.bankingMode;
+    m_bootRomEnabled = state.bootRomEnabled;
+    m_ie = state.ie;
+}
+
 bool Memory::decodeHeader(std::string &error)
 {
     if (m_cart.rom.size() < kMinRomSize) {

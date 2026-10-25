@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 
@@ -28,6 +29,178 @@ constexpr std::size_t kMaxBufferedSamples = 48000;
 
 /** @brief Duty cycle patterns: number of high quarters per period. */
 constexpr int kDutyPatterns[4] = {1, 2, 4, 6};
+
+/** @brief Magic identifier of a state file: "GBST". */
+constexpr char kStateMagic[4] = {'G', 'B', 'S', 'T'};
+
+/** @brief Format version of the state files written by this build. */
+constexpr std::uint32_t kStateVersion = 1;
+
+/**
+ * @brief Appends a byte to a serialized state.
+ * @param out The byte array being built.
+ * @param value The value to append.
+ */
+void appendByte(std::vector<u8> &out, u8 value)
+{
+    out.push_back(value);
+}
+
+/**
+ * @brief Appends a little endian 16-bit value to a serialized state.
+ * @param out The byte array being built.
+ * @param value The value to append.
+ */
+void appendWord(std::vector<u8> &out, u16 value)
+{
+    out.push_back(static_cast<u8>(value & 0xFF));
+    out.push_back(static_cast<u8>(value >> 8));
+}
+
+/**
+ * @brief Appends a little endian 32-bit value to a serialized state.
+ * @param out The byte array being built.
+ * @param value The value to append.
+ */
+void appendDWord(std::vector<u8> &out, std::uint32_t value)
+{
+    out.push_back(static_cast<u8>(value & 0xFF));
+    out.push_back(static_cast<u8>((value >> 8) & 0xFF));
+    out.push_back(static_cast<u8>((value >> 16) & 0xFF));
+    out.push_back(static_cast<u8>((value >> 24) & 0xFF));
+}
+
+/**
+ * @brief Appends a little endian 64-bit value to a serialized state.
+ * @param out The byte array being built.
+ * @param value The value to append.
+ */
+void appendQWord(std::vector<u8> &out, std::uint64_t value)
+{
+    for (int shift = 0; shift < 64; shift += 8) {
+        out.push_back(static_cast<u8>((value >> shift) & 0xFF));
+    }
+}
+
+/**
+ * @brief Appends a block of bytes to a serialized state.
+ * @param out The byte array being built.
+ * @param data The bytes to append.
+ * @param size Number of bytes to append.
+ */
+void appendBytes(std::vector<u8> &out, const u8 *data, std::size_t size)
+{
+    if (data != nullptr && size != 0) {
+        out.insert(out.end(), data, data + size);
+    }
+}
+
+/**
+ * @brief Sequentially reads the fields written by the append helpers.
+ *
+ * Every read checks the remaining size so a truncated or corrupt file fails
+ * cleanly instead of reading past the end of the buffer.
+ */
+class StateReader {
+public:
+    /**
+     * @brief Constructs a reader over a byte array.
+     * @param data The state bytes.
+     * @param size Number of bytes available.
+     */
+    StateReader(const u8 *data, std::size_t size)
+        : m_data(data), m_size(size)
+    {
+    }
+
+    /**
+     * @brief Reads a block of bytes.
+     * @param dst Destination buffer.
+     * @param size Number of bytes to read.
+     * @return False when fewer than size bytes remain.
+     */
+    bool readBytes(u8 *dst, std::size_t size)
+    {
+        if (m_pos > m_size || size > m_size - m_pos) {
+            return false;
+        }
+        if (size != 0) {
+            std::memcpy(dst, m_data + m_pos, size);
+            m_pos += size;
+        }
+        return true;
+    }
+
+    /**
+     * @brief Reads a byte.
+     * @param value Receives the value.
+     * @return False when the input is exhausted.
+     */
+    bool readByte(u8 &value)
+    {
+        return readBytes(&value, sizeof(value));
+    }
+
+    /**
+     * @brief Reads a little endian 16-bit value.
+     * @param value Receives the value.
+     * @return False when the input is exhausted.
+     */
+    bool readWord(u16 &value)
+    {
+        u8 low = 0;
+        u8 high = 0;
+        if (!readByte(low) || !readByte(high)) {
+            return false;
+        }
+        value = makeWord(high, low);
+        return true;
+    }
+
+    /**
+     * @brief Reads a little endian 32-bit value.
+     * @param value Receives the value.
+     * @return False when the input is exhausted.
+     */
+    bool readDWord(std::uint32_t &value)
+    {
+        u8 b0 = 0;
+        u8 b1 = 0;
+        u8 b2 = 0;
+        u8 b3 = 0;
+        if (!readByte(b0) || !readByte(b1) || !readByte(b2) || !readByte(b3)) {
+            return false;
+        }
+        value = static_cast<std::uint32_t>(b0)
+                | (static_cast<std::uint32_t>(b1) << 8)
+                | (static_cast<std::uint32_t>(b2) << 16)
+                | (static_cast<std::uint32_t>(b3) << 24);
+        return true;
+    }
+
+    /**
+     * @brief Reads a little endian 64-bit value.
+     * @param value Receives the value.
+     * @return False when the input is exhausted.
+     */
+    bool readQWord(std::uint64_t &value)
+    {
+        u8 bytes[8] = {};
+        if (!readBytes(bytes, sizeof(bytes))) {
+            return false;
+        }
+        value = 0;
+        for (int shift = 0; shift < 64; shift += 8) {
+            value |= static_cast<std::uint64_t>(bytes[shift / 8]) << shift;
+        }
+        return true;
+    }
+
+private:
+    const u8 *m_data = nullptr; /**< State bytes. */
+    std::size_t m_size = 0;     /**< Size of the state bytes. */
+    std::size_t m_pos = 0;      /**< Read position. */
+};
 
 } // namespace
 
@@ -419,6 +592,311 @@ const std::vector<u8> &Emulation::saveData() const
 void Emulation::loadSaveData(const std::vector<u8> &data)
 {
     m_memory.loadSaveData(data);
+}
+
+std::vector<u8> Emulation::saveState() const
+{
+    std::vector<u8> out;
+
+    // Header: magic and format version.
+    appendBytes(out, reinterpret_cast<const u8 *>(kStateMagic), sizeof(kStateMagic));
+    appendDWord(out, kStateVersion);
+
+    // CPU registers and control flags.
+    const Opcode::CpuState cpu = m_cpu.cpuState();
+    appendByte(out, cpu.regs.a);
+    appendByte(out, cpu.regs.f);
+    appendByte(out, cpu.regs.b);
+    appendByte(out, cpu.regs.c);
+    appendByte(out, cpu.regs.d);
+    appendByte(out, cpu.regs.e);
+    appendByte(out, cpu.regs.h);
+    appendByte(out, cpu.regs.l);
+    appendWord(out, cpu.regs.sp);
+    appendWord(out, cpu.regs.pc);
+    appendByte(out, cpu.ime ? 1 : 0);
+    appendByte(out, cpu.imeScheduled ? 1 : 0);
+    appendByte(out, cpu.halted ? 1 : 0);
+    appendByte(out, cpu.stopped ? 1 : 0);
+    appendQWord(out, cpu.instructions);
+    appendWord(out, cpu.lastAddress);
+    appendByte(out, cpu.lastOpcode);
+
+    // Interrupt controller: IF and IE registers.
+    appendByte(out, m_interrupts.flags());
+    appendByte(out, m_interrupts.enableRegister());
+
+    // Memory: RAM arrays, registers, mapper state and cartridge RAM.
+    const Memory::MemoryState mem = m_memory.memoryState();
+    appendBytes(out, mem.wram.data(), mem.wram.size());
+    appendBytes(out, mem.vram.data(), mem.vram.size());
+    appendBytes(out, mem.oam.data(), mem.oam.size());
+    appendBytes(out, mem.hram.data(), mem.hram.size());
+    appendBytes(out, mem.io.data(), mem.io.size());
+    appendWord(out, mem.timer.divider);
+    appendByte(out, mem.timer.tima);
+    appendByte(out, mem.timer.tma);
+    appendByte(out, mem.timer.tac);
+    appendByte(out, mem.timer.overflow ? 1 : 0);
+    appendByte(out, mem.serial.sb);
+    appendByte(out, mem.serial.sc);
+    appendDWord(out, static_cast<std::uint32_t>(mem.serial.bitTimer));
+    appendByte(out, mem.serial.outgoing);
+    appendByte(out, mem.serial.incoming);
+    appendByte(out, mem.joypadSelect);
+    appendByte(out, mem.joypadButtons);
+    appendByte(out, mem.romBank);
+    appendByte(out, mem.ramBank);
+    appendByte(out, mem.ramEnabled ? 1 : 0);
+    appendByte(out, mem.bankingMode ? 1 : 0);
+    appendByte(out, mem.bootRomEnabled ? 1 : 0);
+    appendByte(out, mem.ie);
+    appendDWord(out, static_cast<std::uint32_t>(mem.cartRam.size()));
+    appendBytes(out, mem.cartRam.data(), mem.cartRam.size());
+
+    // GPU: LCD registers, timing counters, palettes and framebuffer.
+    const GPU::GpuState gpu = m_gpu.gpuState();
+    appendByte(out, gpu.lcdc);
+    appendByte(out, gpu.stat);
+    appendByte(out, gpu.scy);
+    appendByte(out, gpu.scx);
+    appendByte(out, gpu.ly);
+    appendByte(out, gpu.lyc);
+    appendByte(out, gpu.bgp);
+    appendByte(out, gpu.obp0);
+    appendByte(out, gpu.obp1);
+    appendByte(out, gpu.wy);
+    appendByte(out, gpu.wx);
+    appendByte(out, gpu.dma);
+    appendByte(out, gpu.bgpi);
+    appendByte(out, gpu.obpi);
+    appendDWord(out, static_cast<std::uint32_t>(gpu.dot));
+    appendDWord(out, static_cast<std::uint32_t>(gpu.mode));
+    appendDWord(out, static_cast<std::uint32_t>(gpu.windowLine));
+    appendDWord(out, static_cast<std::uint32_t>(gpu.spritesOnLine));
+    appendQWord(out, gpu.frameCount);
+    appendQWord(out, gpu.disabledFrames);
+    appendByte(out, gpu.statLine ? 1 : 0);
+    appendBytes(out, gpu.bgPaletteRam.data(), gpu.bgPaletteRam.size());
+    appendBytes(out, gpu.objPaletteRam.data(), gpu.objPaletteRam.size());
+    appendBytes(out, gpu.frameBuffer.data(), gpu.frameBuffer.size());
+
+    // Emulator facade: counters and power flags.
+    appendQWord(out, m_cycles);
+    appendByte(out, m_running ? 1 : 0);
+    appendByte(out, m_bootRomEnabled ? 1 : 0);
+
+    return out;
+}
+
+bool Emulation::loadState(const std::vector<u8> &data, std::string &error)
+{
+    constexpr const char *kCorrupt = "Corrupted or truncated state file";
+    StateReader reader(data.data(), data.size());
+
+    // Header: magic and format version.
+    u8 magic[4] = {};
+    if (!reader.readBytes(magic, sizeof(magic))
+        || std::memcmp(magic, kStateMagic, sizeof(magic)) != 0) {
+        error = "Not a Game Boy state file";
+        return false;
+    }
+    std::uint32_t version = 0;
+    if (!reader.readDWord(version) || version != kStateVersion) {
+        error = "Unsupported state file version";
+        return false;
+    }
+
+    // CPU registers and control flags.
+    Opcode::CpuState cpu;
+    if (!reader.readByte(cpu.regs.a) || !reader.readByte(cpu.regs.f)
+        || !reader.readByte(cpu.regs.b) || !reader.readByte(cpu.regs.c)
+        || !reader.readByte(cpu.regs.d) || !reader.readByte(cpu.regs.e)
+        || !reader.readByte(cpu.regs.h) || !reader.readByte(cpu.regs.l)
+        || !reader.readWord(cpu.regs.sp) || !reader.readWord(cpu.regs.pc)) {
+        error = kCorrupt;
+        return false;
+    }
+    u8 byte = 0;
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    cpu.ime = byte != 0;
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    cpu.imeScheduled = byte != 0;
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    cpu.halted = byte != 0;
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    cpu.stopped = byte != 0;
+    if (!reader.readQWord(cpu.instructions) || !reader.readWord(cpu.lastAddress)
+        || !reader.readByte(cpu.lastOpcode)) {
+        error = kCorrupt;
+        return false;
+    }
+
+    // Interrupt controller: IF and IE registers.
+    u8 interruptFlags = 0;
+    u8 interruptEnable = 0;
+    if (!reader.readByte(interruptFlags) || !reader.readByte(interruptEnable)) {
+        error = kCorrupt;
+        return false;
+    }
+
+    // Memory: RAM arrays, registers, mapper state and cartridge RAM.
+    Memory::MemoryState mem;
+    if (!reader.readBytes(mem.wram.data(), mem.wram.size())
+        || !reader.readBytes(mem.vram.data(), mem.vram.size())
+        || !reader.readBytes(mem.oam.data(), mem.oam.size())
+        || !reader.readBytes(mem.hram.data(), mem.hram.size())
+        || !reader.readBytes(mem.io.data(), mem.io.size())
+        || !reader.readWord(mem.timer.divider)
+        || !reader.readByte(mem.timer.tima) || !reader.readByte(mem.timer.tma)
+        || !reader.readByte(mem.timer.tac)) {
+        error = kCorrupt;
+        return false;
+    }
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    mem.timer.overflow = byte != 0;
+    if (!reader.readByte(mem.serial.sb) || !reader.readByte(mem.serial.sc)) {
+        error = kCorrupt;
+        return false;
+    }
+    std::uint32_t dword = 0;
+    if (!reader.readDWord(dword)) {
+        error = kCorrupt;
+        return false;
+    }
+    mem.serial.bitTimer = static_cast<int>(dword);
+    if (!reader.readByte(mem.serial.outgoing) || !reader.readByte(mem.serial.incoming)
+        || !reader.readByte(mem.joypadSelect) || !reader.readByte(mem.joypadButtons)
+        || !reader.readByte(mem.romBank) || !reader.readByte(mem.ramBank)) {
+        error = kCorrupt;
+        return false;
+    }
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    mem.ramEnabled = byte != 0;
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    mem.bankingMode = byte != 0;
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    mem.bootRomEnabled = byte != 0;
+    if (!reader.readByte(mem.ie)) {
+        error = kCorrupt;
+        return false;
+    }
+
+    // The cartridge RAM length also tells whether the state belongs to the
+    // cartridge that is currently loaded; the check runs before any state is
+    // applied so a mismatched file cannot corrupt the running machine.
+    std::uint32_t cartRamLen = 0;
+    if (!reader.readDWord(cartRamLen)) {
+        error = kCorrupt;
+        return false;
+    }
+    if (static_cast<std::size_t>(cartRamLen) != m_memory.cartridge().ram.size()) {
+        error = "The state was saved with a different cartridge";
+        return false;
+    }
+    mem.cartRam.resize(cartRamLen);
+    if (!reader.readBytes(mem.cartRam.data(), mem.cartRam.size())) {
+        error = kCorrupt;
+        return false;
+    }
+
+    // GPU: LCD registers, timing counters, palettes and framebuffer.
+    GPU::GpuState gpu;
+    if (!reader.readByte(gpu.lcdc) || !reader.readByte(gpu.stat)
+        || !reader.readByte(gpu.scy) || !reader.readByte(gpu.scx)
+        || !reader.readByte(gpu.ly) || !reader.readByte(gpu.lyc)
+        || !reader.readByte(gpu.bgp) || !reader.readByte(gpu.obp0)
+        || !reader.readByte(gpu.obp1) || !reader.readByte(gpu.wy)
+        || !reader.readByte(gpu.wx) || !reader.readByte(gpu.dma)
+        || !reader.readByte(gpu.bgpi) || !reader.readByte(gpu.obpi)) {
+        error = kCorrupt;
+        return false;
+    }
+    if (!reader.readDWord(dword)) {
+        error = kCorrupt;
+        return false;
+    }
+    gpu.dot = static_cast<int>(dword);
+    if (!reader.readDWord(dword)) {
+        error = kCorrupt;
+        return false;
+    }
+    gpu.mode = static_cast<int>(dword);
+    if (!reader.readDWord(dword)) {
+        error = kCorrupt;
+        return false;
+    }
+    gpu.windowLine = static_cast<int>(dword);
+    if (!reader.readDWord(dword)) {
+        error = kCorrupt;
+        return false;
+    }
+    gpu.spritesOnLine = static_cast<int>(dword);
+    if (!reader.readQWord(gpu.frameCount) || !reader.readQWord(gpu.disabledFrames)
+        || !reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    gpu.statLine = byte != 0;
+    gpu.frameBuffer.resize(kFrameBufferBytes);
+    if (!reader.readBytes(gpu.bgPaletteRam.data(), gpu.bgPaletteRam.size())
+        || !reader.readBytes(gpu.objPaletteRam.data(), gpu.objPaletteRam.size())
+        || !reader.readBytes(gpu.frameBuffer.data(), gpu.frameBuffer.size())) {
+        error = kCorrupt;
+        return false;
+    }
+
+    // Emulator facade: counters and power flags.
+    std::uint64_t cycles = 0;
+    if (!reader.readQWord(cycles)) {
+        error = kCorrupt;
+        return false;
+    }
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    const bool running = byte != 0;
+    if (!reader.readByte(byte)) {
+        error = kCorrupt;
+        return false;
+    }
+    const bool bootRomEnabled = byte != 0;
+
+    // Everything validated: apply the state.
+    m_cpu.restoreCpuState(cpu);
+    m_interrupts.setFlags(interruptFlags);
+    m_interrupts.setEnableRegister(interruptEnable);
+    m_memory.restoreMemoryState(mem);
+    m_gpu.restoreGpuState(gpu);
+    m_cycles = cycles;
+    m_running = running;
+    m_bootRomEnabled = bootRomEnabled;
+    return true;
 }
 
 void Emulation::setButton(int index, bool pressed)

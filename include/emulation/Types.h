@@ -30,7 +30,7 @@ using u32 = std::uint32_t;
  */
 enum class DisplayPalette : u8 {
     Dmg,       /**< Original green LCD palette of the 1989 Game Boy. */
-    Gbc,       /**< Default blue-teal palette of the Game Boy Color. */
+    Gbc,       /**< Default palette of the Game Boy Color. */
     Custom     /**< Four colours chosen by the user. */
 };
 /** @brief Signed 8-bit integer used for relative jumps. */
