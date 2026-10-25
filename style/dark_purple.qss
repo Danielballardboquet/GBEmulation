@@ -1,0 +1,374 @@
+/**
+ * @file dark_purple.qss
+ * @brief Qt stylesheet for the Game Boy emulator UI (dark purple).
+ *
+ * This is one of several interchangeable themes; the active one is selected in
+ * the settings dialog (Settings > Appearance > Theme).
+ */
+
+QMainWindow {
+    background-color: #17122a;
+}
+
+QMenuBar {
+    background-color: #241b3d;
+    color: #d6c8ee;
+    border-bottom: 1px solid #0e0a1c;
+}
+
+QMenuBar::item {
+    background-color: transparent;
+    padding: 4px 12px;
+}
+
+QMenuBar::item:selected {
+    background-color: #543282;
+    color: #ffffff;
+}
+
+QMenu {
+    background-color: #241b3d;
+    color: #d6c8ee;
+    border: 1px solid #0e0a1c;
+}
+
+QMenu::item {
+    padding: 4px 24px 4px 8px;
+}
+
+QMenu::item:selected {
+    background-color: #543282;
+    color: #ffffff;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #0e0a1c;
+    margin: 4px 0px;
+}
+
+QToolBar {
+    background-color: #241b3d;
+    border: none;
+    spacing: 8px;
+    padding: 4px;
+}
+
+QToolButton {
+    background-color: #2e2350;
+    color: #d6c8ee;
+    border: 1px solid #0e0a1c;
+    border-radius: 3px;
+    padding: 4px 8px;
+}
+
+QToolButton:hover {
+    background-color: #b487e4;
+}
+
+QToolButton:pressed {
+    background-color: #8657b8;
+}
+
+QToolButton:checked {
+    background-color: #543282;
+}
+
+QStatusBar {
+    background-color: #241b3d;
+    color: #d6c8ee;
+    border-top: 1px solid #0e0a1c;
+}
+
+QLabel {
+    color: #d6c8ee;
+}
+
+QLabel#libraryTitle {
+    font-size: 20px;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+QLabel#librarySubtitle {
+    color: #9786c0;
+}
+
+QLabel#libraryDetail {
+    color: #d6c8ee;
+    padding: 6px;
+    background-color: #241b3d;
+    border: 1px solid #0e0a1c;
+    border-radius: 4px;
+}
+
+QPushButton {
+    background-color: #2e2350;
+    color: #d6c8ee;
+    border: 1px solid #0e0a1c;
+    border-radius: 4px;
+    padding: 5px 12px;
+}
+
+QPushButton:hover {
+    background-color: #b487e4;
+}
+
+QPushButton:pressed {
+    background-color: #8657b8;
+}
+
+QPushButton:disabled {
+    color: #9786c0;
+    background-color: #241b3d;
+}
+
+QPushButton#primaryButton {
+    background-color: #a06cd5;
+    color: #ffffff;
+    border: 1px solid #8657b8;
+    border-radius: 4px;
+    font-weight: bold;
+    padding: 6px 18px;
+}
+
+QPushButton#primaryButton:hover {
+    background-color: #b487e4;
+}
+
+QPushButton#primaryButton:pressed {
+    background-color: #8657b8;
+}
+
+QDockWidget::title {
+    background-color: #241b3d;
+    color: #d6c8ee;
+    padding: 4px;
+    border: 1px solid #0e0a1c;
+}
+
+QDockWidget::close-button, QDockWidget::float-button {
+    background-color: #2e2350;
+    border: 1px solid #0e0a1c;
+    border-radius: 2px;
+    padding: 2px;
+}
+
+QDockWidget::close-button:hover, QDockWidget::float-button:hover {
+    background-color: #b487e4;
+}
+
+QListWidget {
+    background-color: #17122a;
+    color: #d6c8ee;
+    border: 1px solid #0e0a1c;
+    border-radius: 4px;
+    outline: 0;
+}
+
+QListWidget::item {
+    padding: 6px 8px;
+}
+
+QListWidget::item:selected {
+    background-color: #543282;
+    color: #ffffff;
+}
+
+QListWidget::item:hover:!selected {
+    background-color: #41256b;
+}
+
+QListWidget::item:alternate {
+    background-color: #2e2350;
+}
+
+QTableWidget {
+    background-color: #17122a;
+    color: #d6c8ee;
+    gridline-color: #241b3d;
+    border: 1px solid #0e0a1c;
+    selection-background-color: #543282;
+}
+
+QTableWidget::item {
+    padding: 2px 4px;
+}
+
+QHeaderView::section {
+    background-color: #241b3d;
+    color: #d6c8ee;
+    padding: 4px;
+    border: 1px solid #0e0a1c;
+}
+
+QPlainTextEdit {
+    background-color: #17122a;
+    color: #d6c8ee;
+    border: 1px solid #0e0a1c;
+    selection-background-color: #543282;
+    font-family: "Consolas", "Courier New", monospace;
+}
+
+QTabWidget::pane {
+    border: 1px solid #0e0a1c;
+    background-color: #17122a;
+    border-radius: 4px;
+    top: -1px;
+}
+
+QTabBar::tab {
+    background-color: #241b3d;
+    color: #9786c0;
+    padding: 6px 14px;
+    border: 1px solid #0e0a1c;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+QTabBar::tab:selected {
+    background-color: #543282;
+    color: #ffffff;
+}
+
+QTabBar::tab:hover:!selected {
+    background-color: #2e2350;
+}
+
+QGroupBox {
+    border: 1px solid #0e0a1c;
+    border-radius: 4px;
+    margin-top: 10px;
+    padding-top: 8px;
+    color: #d6c8ee;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 8px;
+    padding: 0 4px;
+}
+
+QComboBox {
+    background-color: #2e2350;
+    color: #d6c8ee;
+    border: 1px solid #0e0a1c;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+QComboBox:hover {
+    background-color: #b487e4;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 18px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #241b3d;
+    color: #d6c8ee;
+    border: 1px solid #0e0a1c;
+    selection-background-color: #543282;
+}
+
+QSlider::groove:horizontal {
+    background-color: #241b3d;
+    height: 6px;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background-color: #a06cd5;
+    width: 14px;
+    margin: -4px 0;
+    border-radius: 7px;
+}
+
+QSlider::handle:horizontal:hover {
+    background-color: #b487e4;
+}
+
+QScrollBar:vertical {
+    background-color: #17122a;
+    width: 12px;
+    border: none;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #2e2350;
+    min-height: 20px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #b487e4;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    background-color: #17122a;
+    height: 12px;
+    border: none;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #2e2350;
+    min-width: 20px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #b487e4;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+QDialog {
+    background-color: #17122a;
+}
+
+/* LCD bezel behind the screen widget (global action area of the game window). */
+QFrame#lcdFrame {
+    background-color: #241b3d;
+    border: 1px solid #0e0a1c;
+    border-radius: 6px;
+}
+
+/* Document the capture buttons of the settings dialog. */
+QPushButton:focus {
+    border: 1px solid #a06cd5;
+}
+
+/* Checkable menu actions keep a visible check mark. */
+QMenu::indicator {
+    width: 12px;
+    height: 12px;
+}
+
+/* Toolbar separators look lighter than the dark background. */
+QToolBar::separator {
+    background-color: #0e0a1c;
+    width: 1px;
+    margin: 3px 4px;
+}
+
+/* Status bar labels are left aligned and spaced. */
+QStatusBar QLabel {
+    padding: 0 6px;
+}
