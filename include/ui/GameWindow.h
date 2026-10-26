@@ -330,6 +330,13 @@ private:
      */
     QString currentStatePath(int slot) const;
 
+    /**
+     * @brief Refreshes the Save State / Load State menu labels of every slot
+     *        to show whether it is empty and, when filled, the date and time
+     *        it was last saved.
+     */
+    void refreshStateSlotLabels();
+
     QThread *m_thread = nullptr;            /**< Emulation thread. */
     EmulationWorker *m_worker = nullptr;    /**< Worker living on the thread. */
     GBScreenWidget *m_screen = nullptr;     /**< LCD widget. */

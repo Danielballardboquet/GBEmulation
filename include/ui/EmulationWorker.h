@@ -26,6 +26,8 @@ class Emulation;
 
 namespace ui {
 
+class AudioOutput;
+
 /**
  * @brief Owns the emulator and drives the frame loop from a worker thread.
  *
@@ -220,7 +222,15 @@ private:
      */
     void emitFrame();
 
+    /**
+     * @brief Restarts the frame pacing clock so the next frame runs
+     *        immediately instead of waiting out a deadline computed before
+     *        the loop was paused or the ROM was (re)loaded.
+     */
+    void resetPacing();
+
     std::unique_ptr<gb::Emulation> m_emulator; /**< Emulator instance. */
+    std::unique_ptr<AudioOutput> m_audio;      /**< Qt audio output bridge. */
     QTimer *m_loopTimer = nullptr;             /**< Timer that drives the loop. */
     std::atomic<bool> m_running{false};        /**< Frame loop running flag. */
     std::atomic<bool> m_shutdown{false};       /**< Shutdown requested flag. */
@@ -228,6 +238,8 @@ private:
     std::atomic<unsigned int> m_buttons{0};    /**< Bitmask of held buttons. */
     QElapsedTimer m_fpsTimer;                  /**< Timer used to measure the FPS. */
     int m_framesSinceMeasure = 0;              /**< Frames since the last FPS measure. */
+    QElapsedTimer m_pacingClock;                /**< Free running clock used to pace frames. */
+    qint64 m_nextFrameDeadlineUs = 0;           /**< Scheduled time of the next frame, in us. */
     QString m_romPath;                         /**< Path of the loaded ROM. */
 };
 

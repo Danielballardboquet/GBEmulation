@@ -9,6 +9,7 @@
  */
 
 #include "emulation/Memory.h"
+#include "emulation/Emulation.h"
 #include "emulation/GPU.h"
 #include "emulation/Interrupt.h"
 #include "emulation/Types.h"
@@ -83,6 +84,11 @@ void Memory::setGPU(GPU *gpu)
 void Memory::setInterrupts(InterruptController *interrupts)
 {
     m_interrupts = interrupts;
+}
+
+void Memory::setAudio(AudioUnit *audio)
+{
+    m_audio = audio;
 }
 
 bool Memory::loadCartridge(const std::vector<u8> &data, std::string &error)
@@ -672,6 +678,9 @@ u8 Memory::readIo(u16 address)
     case 0xFF0F:
         return m_interrupts != nullptr ? static_cast<u8>(m_interrupts->flags() | 0xE0) : 0xFF;
     default:
+        if (m_audio != nullptr && address >= 0xFF10 && address <= 0xFF3F) {
+            return m_audio->readRegister(address);
+        }
         if (m_gpu != nullptr
             && ((address >= 0xFF40 && address <= 0xFF4B)
                 || (address >= 0xFF68 && address <= 0xFF6B))) {
@@ -725,7 +734,9 @@ void Memory::writeIo(u16 address, u8 value)
         }
         break;
     default:
-        if (m_gpu != nullptr
+        if (m_audio != nullptr && address >= 0xFF10 && address <= 0xFF3F) {
+            m_audio->writeRegister(address, value);
+        } else if (m_gpu != nullptr
             && ((address >= 0xFF40 && address <= 0xFF4B)
                 || (address >= 0xFF68 && address <= 0xFF6B))) {
             m_gpu->writeRegister(address, value);

@@ -16,10 +16,11 @@ if(NOT CMAKE_PREFIX_PATH AND EXISTS "C:/Qt/6.11.1/mingw_64")
     set(CMAKE_PREFIX_PATH "C:/Qt/6.11.1/mingw_64")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
 
 add_executable(GB_emulator WIN32
     main.cpp
+    src/AudioOutput.cpp
     src/EmulationWorker.cpp
     src/GBScreenWidget.cpp
     src/GameWindow.cpp
@@ -35,6 +36,7 @@ add_executable(GB_emulator WIN32
     src/memory.cpp
     src/opcode.cpp
     src/utilities.cpp
+    include/ui/AudioOutput.h
     include/ui/EmulationWorker.h
     include/ui/GBScreenWidget.h
     include/ui/GameWindow.h
@@ -60,7 +62,7 @@ endif()
 
 target_include_directories(GB_emulator PRIVATE include)
 
-target_link_libraries(GB_emulator PRIVATE Qt6::Widgets)
+target_link_libraries(GB_emulator PRIVATE Qt6::Widgets Qt6::Multimedia)
 
 # Copy the stylesheets next to the executable so the theme loader finds them
 # regardless of the working directory.
@@ -186,7 +188,7 @@ if(WIN32)
     set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\\\GB_emulator.exe")
     set(CPACK_NSIS_HELP_LINK "https://github.com/yourusername/GB_emulator")
     set(CPACK_NSIS_URL_INFO_ABOUT "https://github.com/yourusername/GB_emulator")
-    set(CPACK_NSIS_CONTACT "your.email@example.com")
+    set(CPACK_NSIS_CONTACT "danielballardboquet01@gmail.com")
     set(CPACK_NSIS_CREATE_ICONS_EXTRA
         "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\GB Emulator.lnk' '$INSTDIR\\\\bin\\\\GB_emulator.exe'"
     )
@@ -208,7 +210,7 @@ elseif(UNIX)
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "GB Emulator Team <your.email@example.com>")
     set(CPACK_DEBIAN_PACKAGE_SECTION "games")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libqt6widgets6")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libqt6widgets6, libqt6multimedia6")
     
     # RPM package settings
     set(CPACK_RPM_PACKAGE_LICENSE "MIT")

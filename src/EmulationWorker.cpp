@@ -9,13 +9,14 @@
 
 #include "ui/EmulationWorker.h"
 
+#include "ui/AudioOutput.h"
+
 #include "emulation/Emulation.h"
 #include "emulation/Types.h"
 
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
-#include <QThread>
 #include <QTimer>
 
 #include <algorithm>
@@ -46,8 +47,12 @@ void EmulationWorker::initialize()
     }
     m_loopTimer = new QTimer(this);
     m_loopTimer->setTimerType(Qt::PreciseTimer);
-    m_loopTimer->setInterval(10);
+    m_loopTimer->setSingleShot(true);
     connect(m_loopTimer, &QTimer::timeout, this, &EmulationWorker::processFrame);
+
+    // The sink must be created on this thread: it is the thread that runs
+    // the Qt event loop that delivers audio callbacks.
+    m_audio = std::make_unique<AudioOutput>(this);
 }
 
 gb::Emulation *EmulationWorker::emulator()
@@ -85,6 +90,9 @@ void EmulationWorker::loadRom(const QString &path)
     }
 
     m_emulator->reset();
+    if (m_audio) {
+        m_audio->reset();
+    }
     m_running.store(true);
     emit runningChanged(true);
 
@@ -95,7 +103,8 @@ void EmulationWorker::loadRom(const QString &path)
                    cart.ramBanks);
 
     if (m_loopTimer) {
-        m_loopTimer->start();
+        resetPacing();
+        m_loopTimer->start(0);
     }
 }
 
@@ -105,10 +114,14 @@ void EmulationWorker::reset()
         return;
     }
     m_emulator->reset();
+    if (m_audio) {
+        m_audio->reset();
+    }
     m_running.store(true);
     emit runningChanged(true);
     if (m_loopTimer) {
-        m_loopTimer->start();
+        resetPacing();
+        m_loopTimer->start(0);
     }
 }
 
@@ -122,7 +135,8 @@ void EmulationWorker::setRunning(bool running)
     const bool wasRunning = m_running.exchange(running);
     if (wasRunning == running) {
         if (running) {
-            m_loopTimer->start();
+            resetPacing();
+            m_loopTimer->start(0);
         }
         return;
     }
@@ -133,7 +147,8 @@ void EmulationWorker::setRunning(bool running)
     }
 
     if (running) {
-        m_loopTimer->start();
+        resetPacing();
+        m_loopTimer->start(0);
     } else {
         m_loopTimer->stop();
     }
@@ -291,9 +306,36 @@ void EmulationWorker::processFrame()
 
     runFrameLoop();
 
-    if (m_running.load() && !m_shutdown.load()) {
-        m_loopTimer->start();
+    if (!m_running.load() || m_shutdown.load()) {
+        return;
     }
+
+    // Schedule the next frame against an accumulating deadline rather than
+    // sleeping a fixed amount relative to "now": the latter lets small
+    // rounding and scheduling errors pile up frame after frame (visible as
+    // a slow drift out of sync), while the former self-corrects and keeps
+    // the long-run average exactly at the target rate. A plain timer-based
+    // wait also frees the thread between frames instead of busy-spinning,
+    // which was wasting a full CPU core and could itself cause stutter on
+    // less powerful machines.
+    const double speedFactor = static_cast<double>(m_speed.load()) / 100.0;
+    const qint64 slotMicros = static_cast<qint64>(1000000.0 / (gb::kFramesPerSecond * speedFactor));
+    const qint64 now = m_pacingClock.nsecsElapsed() / 1000;
+    m_nextFrameDeadlineUs += slotMicros;
+
+    // If we fell behind by more than one frame slot (window dragged, system
+    // hiccup, ...) resync to "now" instead of bursting through the backlog:
+    // a single dropped frame is far less noticeable than the emulation
+    // suddenly sprinting to catch up.
+    if (m_nextFrameDeadlineUs < now - slotMicros) {
+        m_nextFrameDeadlineUs = now;
+    }
+
+    const qint64 remainingUs = m_nextFrameDeadlineUs - now;
+    const int remainingMs = remainingUs > 0
+        ? static_cast<int>((remainingUs + 999) / 1000)
+        : 0;
+    m_loopTimer->start(remainingMs);
 }
 
 void EmulationWorker::runFrameLoop()
@@ -301,9 +343,6 @@ void EmulationWorker::runFrameLoop()
     if (!m_emulator || !m_emulator->isRunning()) {
         return;
     }
-
-    QElapsedTimer clock;
-    clock.start();
 
     // Copy the atomic joypad bitmap into the emulator once per frame.
     const unsigned int buttons = m_buttons.load(std::memory_order_relaxed);
@@ -315,14 +354,8 @@ void EmulationWorker::runFrameLoop()
     ++m_framesSinceMeasure;
     emitFrame();
 
-    // Sleep for the remainder of the frame slot so the average frame rate
-    // matches the selected speed (10..400 percent of the real hardware).
-    const double speedFactor = static_cast<double>(m_speed.load()) / 100.0;
-    const qint64 slotMicros = static_cast<qint64>(1000000.0 / (gb::kFramesPerSecond * speedFactor));
-    qint64 remaining = slotMicros - clock.nsecsElapsed() / 1000;
-    while (remaining > 200 && m_running.load() && !m_shutdown.load()) {
-        QThread::usleep(static_cast<ulong>(qMin<qint64>(remaining, 5000)));
-        remaining = slotMicros - clock.nsecsElapsed() / 1000;
+    if (m_audio) {
+        m_audio->pushSamples(m_emulator->takeAudioSamples());
     }
 
     if (m_fpsTimer.isValid() && m_fpsTimer.elapsed() >= kFpsMeasureIntervalMs) {
@@ -333,6 +366,12 @@ void EmulationWorker::runFrameLoop()
     } else if (!m_fpsTimer.isValid()) {
         m_fpsTimer.start();
     }
+}
+
+void EmulationWorker::resetPacing()
+{
+    m_pacingClock.start();
+    m_nextFrameDeadlineUs = 0;
 }
 
 void EmulationWorker::emitFrame()

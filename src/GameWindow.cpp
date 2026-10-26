@@ -370,6 +370,28 @@ void GameWindow::saveStateSlot(int slot)
                               Q_ARG(QString, path));
 }
 
+void GameWindow::refreshStateSlotLabels()
+{
+    const bool romLoaded = !m_currentRom.isEmpty();
+    for (int slot = 1; slot <= kSaveStateSlotCount; ++slot) {
+        const QString path = currentStatePath(slot);
+        const QFileInfo info(path);
+        const bool filled = !path.isEmpty() && info.exists();
+        const QString suffix = filled
+            ? tr(" (%1)").arg(info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm")))
+            : tr(" (empty)");
+        const QString label = tr("Slot %1%2").arg(slot).arg(suffix);
+        if (QAction *saveAction = m_saveStateActions[slot - 1]) {
+            saveAction->setText(label);
+            saveAction->setEnabled(romLoaded);
+        }
+        if (QAction *loadAction = m_loadStateActions[slot - 1]) {
+            loadAction->setText(label);
+            loadAction->setEnabled(romLoaded && filled);
+        }
+    }
+}
+
 void GameWindow::loadStateSlot(int slot)
 {
     const QString path = currentStatePath(slot);
@@ -388,6 +410,7 @@ void GameWindow::loadStateSlot(int slot)
 void GameWindow::onStateSaved(const QString &path)
 {
     statusBar()->showMessage(tr("State saved to %1").arg(path), 3000);
+    refreshStateSlotLabels();
 }
 
 void GameWindow::onStateSaveFailed(const QString &error)
@@ -485,12 +508,7 @@ void GameWindow::onRomLoaded(const QString &title, const QString &mapper, int ro
     m_pauseAction->setEnabled(true);
     m_stepAction->setEnabled(false);
     m_frameAction->setEnabled(false);
-    for (QAction *action : m_saveStateActions) {
-        action->setEnabled(true);
-    }
-    for (QAction *action : m_loadStateActions) {
-        action->setEnabled(true);
-    }
+    refreshStateSlotLabels();
 
     statusBar()->showMessage(
         tr("Loaded %1 (%2 ROM banks, %3 RAM banks)").arg(title).arg(romBanks).arg(ramBanks),
@@ -607,6 +625,8 @@ void GameWindow::createActions()
         connect(loadAction, &QAction::triggered, this, [this, slot]() { loadStateSlot(slot); });
         m_loadStateActions[slot - 1] = loadAction;
     }
+    connect(saveStateMenu, &QMenu::aboutToShow, this, &GameWindow::refreshStateSlotLabels);
+    connect(loadStateMenu, &QMenu::aboutToShow, this, &GameWindow::refreshStateSlotLabels);
 
     m_debugAction = new QAction(tr("&Debugger"), this);
     m_debugAction->setCheckable(true);

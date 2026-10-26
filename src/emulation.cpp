@@ -27,8 +27,14 @@ constexpr double kCyclesPerSample = static_cast<double>(kCyclesPerSecond) / kSam
 /** @brief Number of samples kept when the front-end stops draining the buffer. */
 constexpr std::size_t kMaxBufferedSamples = 48000;
 
-/** @brief Duty cycle patterns: number of high quarters per period. */
+/** @brief Duty cycle patterns: number of high eighths per period (12.5/25/50/75%). */
 constexpr int kDutyPatterns[4] = {1, 2, 4, 6};
+
+/** @brief CPU cycles between two 64 Hz volume envelope steps. */
+constexpr double kCyclesPerEnvelopeStep = static_cast<double>(kCyclesPerSecond) / 64.0;
+
+/** @brief CPU cycles between two 128 Hz frequency sweep steps. */
+constexpr double kCyclesPerSweepStep = static_cast<double>(kCyclesPerSecond) / 128.0;
 
 /** @brief Magic identifier of a state file: "GBST". */
 constexpr char kStateMagic[4] = {'G', 'B', 'S', 'T'};
@@ -248,12 +254,19 @@ u8 AudioUnit::readRegister(u16 address) const
 void AudioUnit::writeRegister(u16 address, u8 value)
 {
     switch (address) {
+    case 0xFF10:
+        m_square1.sweepPeriod = (value >> 4) & 0x07;
+        m_square1.sweepDirection = (value & 0x08) != 0 ? -1 : 1;
+        m_square1.sweepShift = value & 0x07;
+        break;
     case 0xFF11:
         m_square1.duty = (value >> 6) & 0x03;
         m_square1.length = 64 - (value & 0x3F);
         break;
     case 0xFF12:
-        m_square1.volume = (value >> 4) & 0x0F;
+        m_square1.initialVolume = (value >> 4) & 0x0F;
+        m_square1.envelopeDirection = (value & 0x08) != 0 ? 1 : -1;
+        m_square1.envelopePeriod = value & 0x07;
         m_square1.enabled = (value & 0xF8) != 0;
         break;
     case 0xFF13:
@@ -264,6 +277,9 @@ void AudioUnit::writeRegister(u16 address, u8 value)
         if ((value & 0x80) != 0) {
             m_square1.enabled = true;
             m_square1.phase = 0.0;
+            m_square1.volume = m_square1.initialVolume;
+            m_square1.envelopeCycles = 0;
+            m_square1.sweepCycles = 0;
         }
         break;
     case 0xFF16:
@@ -271,7 +287,9 @@ void AudioUnit::writeRegister(u16 address, u8 value)
         m_square2.length = 64 - (value & 0x3F);
         break;
     case 0xFF17:
-        m_square2.volume = (value >> 4) & 0x0F;
+        m_square2.initialVolume = (value >> 4) & 0x0F;
+        m_square2.envelopeDirection = (value & 0x08) != 0 ? 1 : -1;
+        m_square2.envelopePeriod = value & 0x07;
         m_square2.enabled = (value & 0xF8) != 0;
         break;
     case 0xFF18:
@@ -282,6 +300,8 @@ void AudioUnit::writeRegister(u16 address, u8 value)
         if ((value & 0x80) != 0) {
             m_square2.enabled = true;
             m_square2.phase = 0.0;
+            m_square2.volume = m_square2.initialVolume;
+            m_square2.envelopeCycles = 0;
         }
         break;
     case 0xFF1A:
@@ -328,6 +348,14 @@ void AudioUnit::tick(int cycles)
     m_lengthCounter += static_cast<std::uint32_t>(cycles);
     tickLengthCounters();
 
+    // Advance the volume envelopes at 64 Hz and channel 1's frequency sweep
+    // at 128 Hz: without these, every note holds its initial volume and
+    // pitch forever instead of the decay/slide most game music relies on,
+    // which is the main reason the mix sounded flat and "wrong".
+    tickEnvelope(m_square1, cycles);
+    tickEnvelope(m_square2, cycles);
+    tickSweep(cycles);
+
     // Advance the phase accumulators of the active channels.
     if (m_square1.enabled) {
         const double period = std::max(4.0, static_cast<double>(2048 - m_square1.frequency) * 4.0);
@@ -366,23 +394,38 @@ bool AudioUnit::isActive() const
 
 std::int16_t AudioUnit::mixSample() const
 {
+    // The master power switch (NR52 bit 7) silences every channel on real
+    // hardware; without this check the mix kept playing whatever the
+    // channels were doing even after a game turned sound off.
+    if ((m_nr52 & 0x80) == 0) {
+        return 0;
+    }
+
     double total = 0.0;
 
     if (m_square1.enabled && (m_nr51 & 0x11) != 0) {
-        const int highQuarters = kDutyPatterns[m_square1.duty & 0x03];
+        // Patterns are expressed as eighths of the period (12.5/25/50/75%),
+        // so the phase must be scaled by 8, not 4: the previous factor of 4
+        // squeezed the whole waveform into the first half of the period,
+        // turning duty 2 and 3 into a constant (silent) line and distorting
+        // duty 0 and 1 into the wrong cycle - the main cause of the bad
+        // sound.
+        const int highEighths = kDutyPatterns[m_square1.duty & 0x03];
         const double amplitude = (m_square1.volume / 15.0) * 0.5;
-        total += (m_square1.phase * 4.0 < highQuarters) ? amplitude : -amplitude;
+        total += (m_square1.phase * 8.0 < highEighths) ? amplitude : -amplitude;
     }
     if (m_square2.enabled && (m_nr51 & 0x22) != 0) {
-        const int highQuarters = kDutyPatterns[m_square2.duty & 0x03];
+        const int highEighths = kDutyPatterns[m_square2.duty & 0x03];
         const double amplitude = (m_square2.volume / 15.0) * 0.5;
-        total += (m_square2.phase * 4.0 < highQuarters) ? amplitude : -amplitude;
+        total += (m_square2.phase * 8.0 < highEighths) ? amplitude : -amplitude;
     }
     if (m_wave.enabled && (m_nr51 & 0x44) != 0) {
         const int index = static_cast<int>(m_wave.phase * 32.0) & 0x1F;
         const u8 byte = m_waveRam[index / 2];
         const int nibble = (index & 0x01) != 0 ? (byte & 0x0F) : (byte >> 4);
-        const double amplitude = nibble / 8.0 - 1.0;
+        // Center the 4-bit sample around zero (range -1..1) instead of the
+        // previous -1..0.875, which added a constant DC offset to the mix.
+        const double amplitude = (nibble - 7.5) / 7.5;
         const double gain = m_wave.volume == 0 ? 0.0 : 1.0 / (1 << (4 - m_wave.volume));
         total += amplitude * 0.5 * gain;
     }
@@ -414,6 +457,51 @@ void AudioUnit::tickLengthCounters()
     }
 }
 
+void AudioUnit::tickEnvelope(SquareChannel &channel, int cycles)
+{
+    // A period of 0 disables the envelope: the channel just holds its
+    // current volume, matching real hardware.
+    if (channel.envelopePeriod == 0) {
+        return;
+    }
+    channel.envelopeCycles += static_cast<std::uint32_t>(cycles);
+    const auto stepCycles = static_cast<std::uint32_t>(channel.envelopePeriod * kCyclesPerEnvelopeStep);
+    while (channel.envelopeCycles >= stepCycles) {
+        channel.envelopeCycles -= stepCycles;
+        const int next = channel.volume + channel.envelopeDirection;
+        if (next < 0 || next > 15) {
+            // The envelope stops once it hits either bound; it never wraps.
+            break;
+        }
+        channel.volume = next;
+    }
+}
+
+void AudioUnit::tickSweep(int cycles)
+{
+    // Only channel 1 has a frequency sweep unit; a period of 0 disables it.
+    if (m_square1.sweepPeriod == 0 || !m_square1.enabled) {
+        return;
+    }
+    m_square1.sweepCycles += static_cast<std::uint32_t>(cycles);
+    const auto stepCycles = static_cast<std::uint32_t>(m_square1.sweepPeriod * kCyclesPerSweepStep);
+    while (m_square1.sweepCycles >= stepCycles) {
+        m_square1.sweepCycles -= stepCycles;
+        if (m_square1.sweepShift == 0) {
+            continue;
+        }
+        const int delta = m_square1.frequency >> m_square1.sweepShift;
+        const int next = m_square1.frequency + m_square1.sweepDirection * delta;
+        if (next < 0 || next > 0x7FF) {
+            // Overflowing (or underflowing) the 11-bit frequency silences
+            // the channel, exactly like the real sweep unit.
+            m_square1.enabled = false;
+            break;
+        }
+        m_square1.frequency = next;
+    }
+}
+
 Emulation::Emulation()
 {
     m_cpu.setMemory(&m_memory);
@@ -423,6 +511,7 @@ Emulation::Emulation()
     m_gpu.setVideoRam(m_memory.videoRamBuffer());
     m_memory.setGPU(&m_gpu);
     m_memory.setInterrupts(&m_interrupts);
+    m_memory.setAudio(&m_audio);
 }
 
 Emulation::~Emulation() = default;

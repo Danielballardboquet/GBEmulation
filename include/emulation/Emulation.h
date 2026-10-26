@@ -84,9 +84,17 @@ private:
         bool enabled = false;   /**< Channel running flag. */
         int frequency = 0;      /**< Frequency register value (11 bits). */
         int duty = 2;           /**< Duty cycle index (0..3). */
-        int volume = 0;         /**< Current volume (0..15). */
+        int volume = 0;         /**< Current (post-envelope) volume (0..15). */
+        int initialVolume = 0;  /**< Volume reloaded into the channel on trigger. */
+        int envelopeDirection = -1; /**< +1 to increase the volume, -1 to decrease it. */
+        int envelopePeriod = 0;     /**< Envelope step length in 64 Hz ticks (0 = disabled). */
+        std::uint32_t envelopeCycles = 0; /**< Cycles accumulated towards the next envelope step. */
         int length = 0;         /**< Remaining length in 256 Hz ticks. */
         double phase = 0.0;     /**< Phase accumulator (0..1). */
+        int sweepPeriod = 0;        /**< Frequency sweep period in 128 Hz ticks (channel 1 only). */
+        int sweepDirection = 1;     /**< +1 increases the frequency, -1 decreases it. */
+        int sweepShift = 0;         /**< Frequency sweep shift amount (channel 1 only). */
+        std::uint32_t sweepCycles = 0; /**< Cycles accumulated towards the next sweep step. */
     };
 
     /**
@@ -109,6 +117,19 @@ private:
      * @brief Advances the length counters at 256 Hz.
      */
     void tickLengthCounters();
+
+    /**
+     * @brief Advances a channel's volume envelope at 64 Hz.
+     * @param channel The square channel to update.
+     * @param cycles Number of CPU cycles elapsed.
+     */
+    void tickEnvelope(SquareChannel &channel, int cycles);
+
+    /**
+     * @brief Advances channel 1's frequency sweep at 128 Hz.
+     * @param cycles Number of CPU cycles elapsed.
+     */
+    void tickSweep(int cycles);
 
     SquareChannel m_square1; /**< Channel 1 (NR10-NR14). */
     SquareChannel m_square2; /**< Channel 2 (NR21-NR24). */

@@ -22,6 +22,7 @@ namespace gb {
 
 class GPU;
 class InterruptController;
+class AudioUnit;
 
 /**
  * @brief Cartridge mapper types supported by the emulator.
@@ -126,6 +127,12 @@ public:
      * @param interrupts Pointer to the interrupt controller.
      */
     void setInterrupts(InterruptController *interrupts);
+
+    /**
+     * @brief Attaches the audio unit so sound registers reach it.
+     * @param audio Pointer to the audio unit owned by the emulator.
+     */
+    void setAudio(AudioUnit *audio);
 
     /**
      * @brief Loads a cartridge image into the bus.
@@ -404,6 +411,7 @@ private:
     bool m_ramEnabled = false;                    /**< Cartridge RAM enable flag. */
     bool m_bankingMode = false;                   /**< MBC1 advanced banking mode. */
     GPU *m_gpu = nullptr;                         /**< Attached GPU. */
+    AudioUnit *m_audio = nullptr;                 /**< Attached audio unit. */
     InterruptController *m_interrupts = nullptr;  /**< Attached interrupt controller. */
 };
 
