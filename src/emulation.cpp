@@ -27,14 +27,46 @@ constexpr double kCyclesPerSample = static_cast<double>(kCyclesPerSecond) / kSam
 /** @brief Number of samples kept when the front-end stops draining the buffer. */
 constexpr std::size_t kMaxBufferedSamples = 48000;
 
-/** @brief Duty cycle patterns: number of high eighths per period (12.5/25/50/75%). */
-constexpr int kDutyPatterns[4] = {1, 2, 4, 6};
+/**
+ * @brief Duty cycle patterns as 8-step waveforms, exactly as the hardware
+ *        generates them (step 0 is the first step after the phase resets).
+ *
+ * Duty 0: 00000001 (12.5%), 1: 10000001 (25%), 2: 10000111 (50%),
+ * 3: 01111110 (75%). Using a single "high for the first N eighths" rule
+ * gives the right pulse *width* but the wrong *shape*: hardware duty 3 is a
+ * pulse that starts low and is high in the middle, and duty 0 is high only
+ * on the last step. Getting the shape wrong changes the timbre of every
+ * note, which is what made the output sound distorted.
+ */
+constexpr u8 kDutyWaveforms[4] = {0x80, 0x81, 0xE1, 0x7E};
 
 /** @brief CPU cycles between two 64 Hz volume envelope steps. */
 constexpr double kCyclesPerEnvelopeStep = static_cast<double>(kCyclesPerSecond) / 64.0;
 
 /** @brief CPU cycles between two 128 Hz frequency sweep steps. */
 constexpr double kCyclesPerSweepStep = static_cast<double>(kCyclesPerSecond) / 128.0;
+
+/** @brief CPU cycles between two 256 Hz length counter steps. */
+constexpr double kCyclesPerLengthStep = static_cast<double>(kCyclesPerSecond) / 256.0;
+
+/**
+ * @brief Clock divisors of the noise channel, in CPU cycles per LFSR shift.
+ *
+ * The hardware divides by 8, 16, 32, ... 112 for divisor codes 0..7, and the
+ * programmed shift multiplies that by 2^shift.
+ */
+constexpr int kNoiseDivisors[8] = {8, 16, 32, 48, 64, 80, 96, 112};
+
+/**
+ * @brief Coefficient of the one-pole output low pass filter.
+ *
+ * A square wave sampled at 48 kHz folds a lot of energy back into the
+ * audible band; the hardware's analog output stage rolls that off. With
+ * y += (x - y) * a and a sample rate of 48 kHz, a = 0.5 puts the -3 dB
+ * point at about 11 kHz, which removes the worst of the aliasing while
+ * leaving every note the Game Boy can play (up to ~4 kHz) untouched.
+ */
+constexpr double kOutputFilterCoefficient = 0.5;
 
 /** @brief Magic identifier of a state file: "GBST". */
 constexpr char kStateMagic[4] = {'G', 'B', 'S', 'T'};
@@ -220,11 +252,14 @@ void AudioUnit::reset()
     m_square1 = SquareChannel{};
     m_square2 = SquareChannel{};
     m_wave = WaveChannel{};
+    m_noise = NoiseChannel{};
     m_square1.duty = 0;
     m_square1.volume = 0;
     m_square2.duty = 0;
     m_square2.volume = 0;
     m_wave.volume = 0;
+    m_noise.volume = 0;
+    m_noise.lfsr = 0x7FFF;
     m_nr50 = 0x77;
     m_nr51 = 0xF3;
     m_nr52 = 0xF1;
@@ -232,17 +267,66 @@ void AudioUnit::reset()
     m_sampleAccumulator = 0.0;
     m_samples.clear();
     m_lengthCounter = 0;
+    m_levelSquare1 = 0.0;
+    m_levelSquare2 = 0.0;
+    m_levelWave = 0.0;
+    m_levelNoise = 0.0;
+    m_filterState = 0.0;
 }
 
 u8 AudioUnit::readRegister(u16 address) const
 {
     switch (address) {
+    case 0xFF10:
+        return static_cast<u8>(0x80 | (m_square1.sweepPeriod << 4)
+                               | (m_square1.sweepDirection < 0 ? 0x08 : 0x00)
+                               | m_square1.sweepShift);
+    case 0xFF11:
+        return static_cast<u8>((m_square1.duty << 6) | 0x3F);
+    case 0xFF12:
+        return static_cast<u8>((m_square1.initialVolume << 4)
+                               | (m_square1.envelopeDirection > 0 ? 0x08 : 0x00)
+                               | m_square1.envelopePeriod);
+    case 0xFF14:
+        return static_cast<u8>(0xBF | (m_square1.lengthEnabled ? 0x40 : 0x00)
+                               | ((m_square1.frequency >> 8) & 0x07));
+    case 0xFF16:
+        return static_cast<u8>((m_square2.duty << 6) | 0x3F);
+    case 0xFF17:
+        return static_cast<u8>((m_square2.initialVolume << 4)
+                               | (m_square2.envelopeDirection > 0 ? 0x08 : 0x00)
+                               | m_square2.envelopePeriod);
+    case 0xFF19:
+        return static_cast<u8>(0xBF | (m_square2.lengthEnabled ? 0x40 : 0x00)
+                               | ((m_square2.frequency >> 8) & 0x07));
+    case 0xFF1A:
+        return static_cast<u8>((m_wave.enabled ? 0x80 : 0x00) | 0x7F);
+    case 0xFF1C:
+        return static_cast<u8>((m_wave.volume << 5) | 0x9F);
+    case 0xFF1E:
+        return static_cast<u8>(0xBF | (m_wave.lengthEnabled ? 0x40 : 0x00)
+                               | ((m_wave.frequency >> 8) & 0x07));
+    case 0xFF21:
+        return static_cast<u8>((m_noise.initialVolume << 4)
+                               | (m_noise.envelopeDirection > 0 ? 0x08 : 0x00)
+                               | m_noise.envelopePeriod);
+    case 0xFF22:
+        return static_cast<u8>((m_noise.shift << 4) | (m_noise.widthMode << 3)
+                               | m_noise.divisorCode);
+    case 0xFF23:
+        return static_cast<u8>(0xBF | (m_noise.lengthEnabled ? 0x40 : 0x00));
     case 0xFF24:
         return m_nr50;
     case 0xFF25:
         return m_nr51;
     case 0xFF26:
-        return m_nr52;
+        // Bit 7 = power, bits 0-3 = live channel status, bits 4-6 read 1.
+        return static_cast<u8>((m_nr52 & 0x80)
+                               | (m_square1.enabled ? 0x01 : 0x00)
+                               | (m_square2.enabled ? 0x02 : 0x00)
+                               | (m_wave.enabled ? 0x04 : 0x00)
+                               | (m_noise.enabled ? 0x08 : 0x00)
+                               | 0x70);
     default:
         if (address >= 0xFF30 && address <= 0xFF3F) {
             return m_waveRam[address - 0xFF30];
@@ -274,6 +358,7 @@ void AudioUnit::writeRegister(u16 address, u8 value)
         break;
     case 0xFF14:
         m_square1.frequency = (m_square1.frequency & 0xFF) | ((value & 0x07) << 8);
+        m_square1.lengthEnabled = (value & 0x40) != 0;
         if ((value & 0x80) != 0) {
             m_square1.enabled = true;
             m_square1.phase = 0.0;
@@ -297,6 +382,7 @@ void AudioUnit::writeRegister(u16 address, u8 value)
         break;
     case 0xFF19:
         m_square2.frequency = (m_square2.frequency & 0xFF) | ((value & 0x07) << 8);
+        m_square2.lengthEnabled = (value & 0x40) != 0;
         if ((value & 0x80) != 0) {
             m_square2.enabled = true;
             m_square2.phase = 0.0;
@@ -305,10 +391,13 @@ void AudioUnit::writeRegister(u16 address, u8 value)
         }
         break;
     case 0xFF1A:
+        // NR30: bit 7 is the DAC enable. Clearing it stops the channel at
+        // once; the channel can only restart through a trigger.
         m_wave.enabled = (value & 0x80) != 0;
         break;
     case 0xFF1B:
-        break; // Wave length counter is not used by this simplified channel.
+        m_wave.length = 256 - value;
+        break;
     case 0xFF1C:
         m_wave.volume = (value >> 5) & 0x03;
         break;
@@ -317,9 +406,37 @@ void AudioUnit::writeRegister(u16 address, u8 value)
         break;
     case 0xFF1E:
         m_wave.frequency = (m_wave.frequency & 0xFF) | ((value & 0x07) << 8);
+        m_wave.lengthEnabled = (value & 0x40) != 0;
         if ((value & 0x80) != 0) {
             m_wave.enabled = true;
             m_wave.phase = 0.0;
+        }
+        break;
+    case 0xFF20:
+        m_noise.length = 64 - (value & 0x3F);
+        break;
+    case 0xFF21:
+        m_noise.initialVolume = (value >> 4) & 0x0F;
+        m_noise.envelopeDirection = (value & 0x08) != 0 ? 1 : -1;
+        m_noise.envelopePeriod = value & 0x07;
+        m_noise.enabled = (value & 0xF8) != 0;
+        break;
+    case 0xFF22:
+        m_noise.shift = (value >> 4) & 0x0F;
+        m_noise.widthMode = (value >> 3) & 0x01;
+        m_noise.divisorCode = value & 0x07;
+        break;
+    case 0xFF23:
+        m_noise.lengthEnabled = (value & 0x40) != 0;
+        if ((value & 0x80) != 0) {
+            m_noise.enabled = true;
+            m_noise.volume = m_noise.initialVolume;
+            m_noise.envelopeCycles = 0;
+            m_noise.clockCycles = 0;
+            // The LFSR restarts all ones; the first shift happens
+            // immediately on hardware.
+            m_noise.lfsr = 0x7FFF;
+            m_noise.output = false;
         }
         break;
     case 0xFF24:
@@ -329,7 +446,16 @@ void AudioUnit::writeRegister(u16 address, u8 value)
         m_nr51 = value;
         break;
     case 0xFF26:
+        // Only bit 7 is writable; bits 0-3 are the live channel status and
+        // are derived from the channels in readRegister().
         m_nr52 = static_cast<u8>((value & 0x80) | (m_nr52 & 0x7F));
+        if ((value & 0x80) == 0) {
+            // Powering the APU off resets every register and silences all
+            // channels, exactly like the hardware.
+            const u8 nr52 = m_nr52;
+            reset();
+            m_nr52 = static_cast<u8>(nr52 & 0x80);
+        }
         break;
     default:
         if (address >= 0xFF30 && address <= 0xFF3F) {
@@ -344,33 +470,58 @@ void AudioUnit::tick(int cycles)
     if (cycles <= 0) {
         return;
     }
-    // Advance the length counters at 256 Hz.
+
+    // The four frame sequencer clocks all run off the same cycle counter:
+    // length at 256 Hz, sweep at 128 Hz, envelope at 64 Hz.
     m_lengthCounter += static_cast<std::uint32_t>(cycles);
     tickLengthCounters();
-
-    // Advance the volume envelopes at 64 Hz and channel 1's frequency sweep
-    // at 128 Hz: without these, every note holds its initial volume and
-    // pitch forever instead of the decay/slide most game music relies on,
-    // which is the main reason the mix sounded flat and "wrong".
     tickEnvelope(m_square1, cycles);
     tickEnvelope(m_square2, cycles);
+    tickNoiseEnvelope(cycles);
     tickSweep(cycles);
+    tickNoise(cycles);
 
-    // Advance the phase accumulators of the active channels.
+    // Advance the phase accumulators of the active channels. The period is
+    // the number of CPU cycles for one full waveform:
+    //   square: (2048 - freq) * 4
+    //   wave:   (2048 - freq) * 64
+    // The phase is wrapped with a subtraction rather than std::fmod: fmod is
+    // exact, so once a period happened to divide the phase exactly the
+    // accumulator could land on 0.0 and stay there, freezing the channel on
+    // one step (a stuck DC level instead of a tone). The periods are clamped
+    // so a pathological frequency cannot divide by zero.
     if (m_square1.enabled) {
         const double period = std::max(4.0, static_cast<double>(2048 - m_square1.frequency) * 4.0);
-        m_square1.phase = std::fmod(m_square1.phase + cycles / period, 1.0);
+        m_square1.phase += cycles / period;
+        if (m_square1.phase >= 1.0) {
+            m_square1.phase -= 1.0;
+        }
     }
     if (m_square2.enabled) {
         const double period = std::max(4.0, static_cast<double>(2048 - m_square2.frequency) * 4.0);
-        m_square2.phase = std::fmod(m_square2.phase + cycles / period, 1.0);
+        m_square2.phase += cycles / period;
+        if (m_square2.phase >= 1.0) {
+            m_square2.phase -= 1.0;
+        }
     }
     if (m_wave.enabled) {
-        const double period = std::max(2.0, static_cast<double>(2048 - m_wave.frequency) * 2.0);
-        m_wave.phase = std::fmod(m_wave.phase + cycles / period, 1.0);
+        // The wave channel advances one sample every (2048 - freq) * 2 CPU
+        // cycles, i.e. one full 32-sample waveform every (2048 - freq) * 64
+        // cycles. The phase is normalised over the whole waveform, so the
+        // period must be the full waveform period too; using the per-sample
+        // period made the channel play 32 times too high.
+        const double period = std::max(64.0, static_cast<double>(2048 - m_wave.frequency) * 64.0);
+        m_wave.phase += cycles / period;
+        if (m_wave.phase >= 1.0) {
+            m_wave.phase -= 1.0;
+        }
     }
 
-    // Accumulate cycles until one sample can be produced.
+    // Refresh the cached channel levels once per tick, then emit however many
+    // output samples are due. Decoupling the two means the mixer never sees a
+    // half-updated channel state.
+    updateChannelLevels();
+
     m_sampleAccumulator += static_cast<double>(cycles);
     while (m_sampleAccumulator >= kCyclesPerSample) {
         m_sampleAccumulator -= kCyclesPerSample;
@@ -389,91 +540,166 @@ std::vector<std::int16_t> AudioUnit::takeSamples()
 
 bool AudioUnit::isActive() const
 {
-    return m_square1.enabled || m_square2.enabled || m_wave.enabled;
+    return m_square1.enabled || m_square2.enabled || m_wave.enabled || m_noise.enabled;
 }
 
-std::int16_t AudioUnit::mixSample() const
+void AudioUnit::updateChannelLevels()
 {
-    // The master power switch (NR52 bit 7) silences every channel on real
-    // hardware; without this check the mix kept playing whatever the
-    // channels were doing even after a game turned sound off.
+    // Square 1. The duty pattern is an 8-step waveform; step 0 is the first
+    // step after the phase resets, matching the hardware shift order.
+    if (m_square1.enabled) {
+        const int step = static_cast<int>(m_square1.phase * 8.0) & 0x07;
+        const bool high = ((kDutyWaveforms[m_square1.duty & 0x03] >> step) & 0x01) != 0;
+        m_levelSquare1 = high ? (m_square1.volume / 15.0) : -(m_square1.volume / 15.0);
+    } else {
+        m_levelSquare1 = 0.0;
+    }
+
+    if (m_square2.enabled) {
+        const int step = static_cast<int>(m_square2.phase * 8.0) & 0x07;
+        const bool high = ((kDutyWaveforms[m_square2.duty & 0x03] >> step) & 0x01) != 0;
+        m_levelSquare2 = high ? (m_square2.volume / 15.0) : -(m_square2.volume / 15.0);
+    } else {
+        m_levelSquare2 = 0.0;
+    }
+
+    // Wave channel: 32 4-bit samples, high nibble first. The nibble is
+    // centred on zero so a silent waveform (all 0x88) produces no DC offset.
+    if (m_wave.enabled) {
+        const int index = static_cast<int>(m_wave.phase * 32.0) & 0x1F;
+        const u8 byte = m_waveRam[index / 2];
+        const int nibble = (index & 0x01) != 0 ? (byte & 0x0F) : (byte >> 4);
+        // NR32 volume codes: 0 = mute, 1 = 100%, 2 = 50%, 3 = 25%.
+        const int code = m_wave.volume & 0x03;
+        const double gain = code == 0 ? 0.0 : 1.0 / (1 << (code - 1));
+        m_levelWave = ((nibble - 7.5) / 7.5) * gain;
+    } else {
+        m_levelWave = 0.0;
+    }
+
+    if (m_noise.enabled) {
+        m_levelNoise = m_noise.output ? (m_noise.volume / 15.0) : -(m_noise.volume / 15.0);
+    } else {
+        m_levelNoise = 0.0;
+    }
+}
+
+std::int16_t AudioUnit::mixSample()
+{
+    // The master power switch (NR52 bit 7) silences every channel.
     if ((m_nr52 & 0x80) == 0) {
         return 0;
     }
 
+    // NR51 routes each channel to the left and/or right output. The emulator
+    // produces a single mono stream, so a channel is audible when it is
+    // routed to at least one side.
     double total = 0.0;
-
-    if (m_square1.enabled && (m_nr51 & 0x11) != 0) {
-        // Patterns are expressed as eighths of the period (12.5/25/50/75%),
-        // so the phase must be scaled by 8, not 4: the previous factor of 4
-        // squeezed the whole waveform into the first half of the period,
-        // turning duty 2 and 3 into a constant (silent) line and distorting
-        // duty 0 and 1 into the wrong cycle - the main cause of the bad
-        // sound.
-        const int highEighths = kDutyPatterns[m_square1.duty & 0x03];
-        const double amplitude = (m_square1.volume / 15.0) * 0.5;
-        total += (m_square1.phase * 8.0 < highEighths) ? amplitude : -amplitude;
+    if ((m_nr51 & 0x11) != 0) {
+        total += m_levelSquare1;
     }
-    if (m_square2.enabled && (m_nr51 & 0x22) != 0) {
-        const int highEighths = kDutyPatterns[m_square2.duty & 0x03];
-        const double amplitude = (m_square2.volume / 15.0) * 0.5;
-        total += (m_square2.phase * 8.0 < highEighths) ? amplitude : -amplitude;
+    if ((m_nr51 & 0x22) != 0) {
+        total += m_levelSquare2;
     }
-    if (m_wave.enabled && (m_nr51 & 0x44) != 0) {
-        const int index = static_cast<int>(m_wave.phase * 32.0) & 0x1F;
-        const u8 byte = m_waveRam[index / 2];
-        const int nibble = (index & 0x01) != 0 ? (byte & 0x0F) : (byte >> 4);
-        // Center the 4-bit sample around zero (range -1..1) instead of the
-        // previous -1..0.875, which added a constant DC offset to the mix.
-        const double amplitude = (nibble - 7.5) / 7.5;
-        const double gain = m_wave.volume == 0 ? 0.0 : 1.0 / (1 << (4 - m_wave.volume));
-        total += amplitude * 0.5 * gain;
+    if ((m_nr51 & 0x44) != 0) {
+        total += m_levelWave;
+    }
+    if ((m_nr51 & 0x88) != 0) {
+        total += m_levelNoise;
     }
 
-    total /= 3.0;
-    const double volume = (((m_nr50 >> 4) & 0x0F) + (m_nr50 & 0x0F)) / 2.0 / 15.0;
-    const double sample = total * volume * 32767.0;
+    // Each channel is already in the -1..+1 range, so a single channel at
+    // full volume must reach full scale: dividing by the channel count here
+    // made every game 12 dB too quiet. The headroom for several channels
+    // playing at once is provided by the clamp below, which only engages
+    // when the sum really exceeds full scale.
+    const int leftVolume = (m_nr50 >> 4) & 0x07;
+    const int rightVolume = m_nr50 & 0x07;
+    const double volume = std::max(leftVolume, rightVolume) / 7.0;
+
+    // A one-pole low pass at ~11 kHz removes the aliasing the square waves
+    // fold back into the audible band at 48 kHz, which is what made the
+    // output sound harsh rather than like a Game Boy.
+    m_filterState += (total - m_filterState) * kOutputFilterCoefficient;
+
+    const double sample = m_filterState * volume * 32767.0;
     const double clamped = std::max(-32768.0, std::min(32767.0, sample));
     return static_cast<std::int16_t>(clamped);
 }
 
 void AudioUnit::tickLengthCounters()
 {
-    if (m_lengthCounter < static_cast<std::uint32_t>(kCyclesPerSecond) / 256) {
+    if (m_lengthCounter < static_cast<std::uint32_t>(kCyclesPerLengthStep)) {
         return;
     }
-    m_lengthCounter = 0;
-    if (m_square1.length > 0) {
+    m_lengthCounter -= static_cast<std::uint32_t>(kCyclesPerLengthStep);
+
+    // The length counter only runs when the channel is enabled *and* the
+    // length-enable bit (NRx4 bit 6) is set; reaching zero stops the
+    // channel. Games that play a note without a length (the common case for
+    // music) leave the bit clear, and honouring the counter anyway cut every
+    // note off after a few hundred milliseconds.
+    if (m_square1.lengthEnabled && m_square1.length > 0) {
         --m_square1.length;
         if (m_square1.length == 0) {
             m_square1.enabled = false;
         }
     }
-    if (m_square2.length > 0) {
+    if (m_square2.lengthEnabled && m_square2.length > 0) {
         --m_square2.length;
         if (m_square2.length == 0) {
             m_square2.enabled = false;
+        }
+    }
+    if (m_wave.lengthEnabled && m_wave.length > 0) {
+        --m_wave.length;
+        if (m_wave.length == 0) {
+            m_wave.enabled = false;
+        }
+    }
+    if (m_noise.lengthEnabled && m_noise.length > 0) {
+        --m_noise.length;
+        if (m_noise.length == 0) {
+            m_noise.enabled = false;
         }
     }
 }
 
 void AudioUnit::tickEnvelope(SquareChannel &channel, int cycles)
 {
-    // A period of 0 disables the envelope: the channel just holds its
-    // current volume, matching real hardware.
-    if (channel.envelopePeriod == 0) {
+    // A period of 0 disables the envelope: the channel holds its volume.
+    if (channel.envelopePeriod == 0 || !channel.enabled) {
         return;
     }
     channel.envelopeCycles += static_cast<std::uint32_t>(cycles);
-    const auto stepCycles = static_cast<std::uint32_t>(channel.envelopePeriod * kCyclesPerEnvelopeStep);
+    const auto stepCycles =
+        static_cast<std::uint32_t>(channel.envelopePeriod * kCyclesPerEnvelopeStep);
     while (channel.envelopeCycles >= stepCycles) {
         channel.envelopeCycles -= stepCycles;
         const int next = channel.volume + channel.envelopeDirection;
         if (next < 0 || next > 15) {
-            // The envelope stops once it hits either bound; it never wraps.
+            // The envelope stops at either bound; it never wraps.
             break;
         }
         channel.volume = next;
+    }
+}
+
+void AudioUnit::tickNoiseEnvelope(int cycles)
+{
+    if (m_noise.envelopePeriod == 0 || !m_noise.enabled) {
+        return;
+    }
+    m_noise.envelopeCycles += static_cast<std::uint32_t>(cycles);
+    const auto stepCycles =
+        static_cast<std::uint32_t>(m_noise.envelopePeriod * kCyclesPerEnvelopeStep);
+    while (m_noise.envelopeCycles >= stepCycles) {
+        m_noise.envelopeCycles -= stepCycles;
+        const int next = m_noise.volume + m_noise.envelopeDirection;
+        if (next < 0 || next > 15) {
+            break;
+        }
+        m_noise.volume = next;
     }
 }
 
@@ -484,7 +710,8 @@ void AudioUnit::tickSweep(int cycles)
         return;
     }
     m_square1.sweepCycles += static_cast<std::uint32_t>(cycles);
-    const auto stepCycles = static_cast<std::uint32_t>(m_square1.sweepPeriod * kCyclesPerSweepStep);
+    const auto stepCycles =
+        static_cast<std::uint32_t>(m_square1.sweepPeriod * kCyclesPerSweepStep);
     while (m_square1.sweepCycles >= stepCycles) {
         m_square1.sweepCycles -= stepCycles;
         if (m_square1.sweepShift == 0) {
@@ -493,12 +720,40 @@ void AudioUnit::tickSweep(int cycles)
         const int delta = m_square1.frequency >> m_square1.sweepShift;
         const int next = m_square1.frequency + m_square1.sweepDirection * delta;
         if (next < 0 || next > 0x7FF) {
-            // Overflowing (or underflowing) the 11-bit frequency silences
-            // the channel, exactly like the real sweep unit.
+            // Overflowing the 11-bit frequency silences the channel.
             m_square1.enabled = false;
             break;
         }
         m_square1.frequency = next;
+    }
+}
+
+void AudioUnit::tickNoise(int cycles)
+{
+    if (!m_noise.enabled) {
+        return;
+    }
+    // Clock period = divisor[code] << shift CPU cycles.
+    const int divisor = kNoiseDivisors[m_noise.divisorCode & 0x07];
+    const auto period = static_cast<std::uint32_t>(divisor << (m_noise.shift & 0x0F));
+    if (period == 0) {
+        return;
+    }
+    m_noise.clockCycles += static_cast<std::uint32_t>(cycles);
+    while (m_noise.clockCycles >= period) {
+        m_noise.clockCycles -= period;
+        // 15-bit LFSR: XOR bits 0 and 1, shift right, feed the result back
+        // into bit 14. In 7-bit mode bit 6 is also overwritten, which gives
+        // the metallic noise the hardware produces.
+        const std::uint16_t bit = static_cast<std::uint16_t>(
+            (m_noise.lfsr ^ (m_noise.lfsr >> 1)) & 0x01);
+        m_noise.lfsr = static_cast<std::uint16_t>((m_noise.lfsr >> 1) | (bit << 14));
+        if (m_noise.widthMode != 0) {
+            m_noise.lfsr = static_cast<std::uint16_t>(
+                (m_noise.lfsr & ~0x40u) | (bit << 6));
+        }
+        // The channel outputs the inverted LSB of the LFSR.
+        m_noise.output = (m_noise.lfsr & 0x01) == 0;
     }
 }
 
@@ -561,13 +816,24 @@ int Emulation::step()
 
 void Emulation::runFrame()
 {
-    const std::uint64_t frameStart = m_gpu.frameCount();
-    const std::uint64_t disabledStart = m_gpu.disabledFrames();
-    int guard = 0;
-    while (m_gpu.frameCount() == frameStart && m_gpu.disabledFrames() == disabledStart
-           && guard < kCyclesPerFrame * 2) {
-        (void)step();
-        ++guard;
+    // Run exactly one full frame: kDotsPerLine * kLinesPerFrame = 70224 CPU
+    // cycles, i.e. all 154 scanlines including VBlank.
+    //
+    // The previous version stopped as soon as the GPU reported a *new* frame,
+    // which happens at the start of VBlank (LY == 144), so only
+    // 144 * 456 = 65664 cycles were executed per call. The worker then paced
+    // that short frame at 59.7275 Hz, so the emulator ran at 93.5 % of the
+    // real speed. Video merely looked slightly slow, but audio is generated
+    // from the same cycle counter: 44883 samples/s were produced while the
+    // sound card consumed 48000/s, so the output buffer underran about 3100
+    // times per second. That constant starvation is what made the sound
+    // crackle and sound distorted.
+    //
+    // Counting cycles instead of watching the frame counter keeps the
+    // emulated clock locked to the host clock, which is what audio needs.
+    int remaining = kCyclesPerFrame;
+    while (remaining > 0) {
+        remaining -= step();
     }
 }
 

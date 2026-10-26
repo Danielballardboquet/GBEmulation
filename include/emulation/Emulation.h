@@ -90,6 +90,7 @@ private:
         int envelopePeriod = 0;     /**< Envelope step length in 64 Hz ticks (0 = disabled). */
         std::uint32_t envelopeCycles = 0; /**< Cycles accumulated towards the next envelope step. */
         int length = 0;         /**< Remaining length in 256 Hz ticks. */
+        bool lengthEnabled = false; /**< NRx4 bit 6: the length counter is running. */
         double phase = 0.0;     /**< Phase accumulator (0..1). */
         int sweepPeriod = 0;        /**< Frequency sweep period in 128 Hz ticks (channel 1 only). */
         int sweepDirection = 1;     /**< +1 increases the frequency, -1 decreases it. */
@@ -104,14 +105,38 @@ private:
         bool enabled = false; /**< Channel running flag. */
         int frequency = 0;    /**< Frequency register value (11 bits). */
         int volume = 0;       /**< Volume code (0..3). */
+        int length = 0;       /**< Remaining length in 256 Hz ticks. */
+        bool lengthEnabled = false; /**< NR34 bit 6: the length counter is running. */
         double phase = 0.0;   /**< Phase accumulator (0..1). */
     };
 
     /**
+     * @brief State of the noise channel (channel 4).
+     */
+    struct NoiseChannel {
+        bool enabled = false;   /**< Channel running flag. */
+        int volume = 0;         /**< Current (post-envelope) volume (0..15). */
+        int initialVolume = 0;  /**< Volume reloaded into the channel on trigger. */
+        int envelopeDirection = -1; /**< +1 to increase the volume, -1 to decrease it. */
+        int envelopePeriod = 0;     /**< Envelope step length in 64 Hz ticks (0 = disabled). */
+        std::uint32_t envelopeCycles = 0; /**< Cycles accumulated towards the next envelope step. */
+        int length = 0;         /**< Remaining length in 256 Hz ticks. */
+        bool lengthEnabled = false; /**< NR44 bit 6: the length counter is running. */
+        int divisorCode = 0;    /**< Clock divisor selector (0..7). */
+        int widthMode = 0;      /**< 0 = 15-bit LFSR, 1 = 7-bit LFSR. */
+        int shift = 0;          /**< Clock shift (0..15). */
+        std::uint32_t clockCycles = 0; /**< Cycles accumulated towards the next LFSR clock. */
+        std::uint16_t lfsr = 0x7FFF;   /**< Linear feedback shift register. */
+        bool output = false;    /**< Current LFSR output bit (true = high). */
+    };
+
+    /**
      * @brief Mixes the active channels into one sample.
+     *
+     * Updates the output filter state, so it is not const.
      * @return A signed 16-bit sample.
      */
-    std::int16_t mixSample() const;
+    std::int16_t mixSample();
 
     /**
      * @brief Advances the length counters at 256 Hz.
@@ -126,14 +151,35 @@ private:
     void tickEnvelope(SquareChannel &channel, int cycles);
 
     /**
+     * @brief Advances the noise channel's volume envelope at 64 Hz.
+     * @param cycles Number of CPU cycles elapsed.
+     */
+    void tickNoiseEnvelope(int cycles);
+
+    /**
      * @brief Advances channel 1's frequency sweep at 128 Hz.
      * @param cycles Number of CPU cycles elapsed.
      */
     void tickSweep(int cycles);
 
+    /**
+     * @brief Clocks the noise channel's LFSR at its programmed rate.
+     * @param cycles Number of CPU cycles elapsed.
+     */
+    void tickNoise(int cycles);
+
+    /**
+     * @brief Recomputes the cached per-channel output levels.
+     *
+     * The mixer reads these instead of the raw registers so that a channel
+     * that is disabled or routed to neither output contributes exactly zero.
+     */
+    void updateChannelLevels();
+
     SquareChannel m_square1; /**< Channel 1 (NR10-NR14). */
     SquareChannel m_square2; /**< Channel 2 (NR21-NR24). */
     WaveChannel m_wave;      /**< Channel 3 (NR30-NR34). */
+    NoiseChannel m_noise;    /**< Channel 4 (NR41-NR44). */
     u8 m_nr50 = 0x77;        /**< Master volume (0xFF24). */
     u8 m_nr51 = 0xF3;        /**< Channel routing (0xFF25). */
     u8 m_nr52 = 0xF1;        /**< Channel status (0xFF26). */
@@ -141,6 +187,12 @@ private:
     double m_sampleAccumulator = 0.0; /**< Cycles accumulated for the next sample. */
     std::vector<std::int16_t> m_samples; /**< Samples waiting to be played. */
     std::uint32_t m_lengthCounter = 0;   /**< Divider of the 256 Hz length clock. */
+    // Cached output levels, in the -1..+1 range, refreshed every tick.
+    double m_levelSquare1 = 0.0; /**< Channel 1 output. */
+    double m_levelSquare2 = 0.0; /**< Channel 2 output. */
+    double m_levelWave = 0.0;    /**< Channel 3 output. */
+    double m_levelNoise = 0.0;   /**< Channel 4 output. */
+    double m_filterState = 0.0;  /**< One-pole output low pass filter state. */
 };
 
 /**
