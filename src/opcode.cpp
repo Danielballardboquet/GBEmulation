@@ -496,9 +496,10 @@ int Opcode::step()
         }
         m_halted = false;
         if (!m_ime) {
-            // Halt bug: with IME cleared the CPU wakes up on any pending
-            // interrupt, sets IME and resumes execution.
-            m_ime = true;
+            // Halt bug: with IME cleared, the CPU wakes up on any pending
+            // interrupt and simply resumes fetching the next instruction.
+            // IME must stay disabled; the interrupt is NOT serviced here
+            // (it remains flagged and will run once IME is re-enabled).
             return 4;
         }
     }
@@ -1049,7 +1050,8 @@ int Opcode::execute(u8 opcode)
     case OpMode::Rlca:
     case OpMode::Rla: {
         bool carry = false;
-        m_regs.a = util::rotateLeft(m_regs.a, entry.mode == OpMode::Rla && flags().c, carry);
+        const bool bitIn = entry.mode == OpMode::Rla ? flags().c : isBitSet(m_regs.a, 7);
+        m_regs.a = util::rotateLeft(m_regs.a, bitIn, carry);
         Flags f = flags();
         f.z = false;
         f.n = false;
@@ -1061,7 +1063,8 @@ int Opcode::execute(u8 opcode)
     case OpMode::Rrca:
     case OpMode::Rra: {
         bool carry = false;
-        m_regs.a = util::rotateRight(m_regs.a, entry.mode == OpMode::Rra && flags().c, carry);
+        const bool bitIn = entry.mode == OpMode::Rra ? flags().c : isBitSet(m_regs.a, 0);
+        m_regs.a = util::rotateRight(m_regs.a, bitIn, carry);
         Flags f = flags();
         f.z = false;
         f.n = false;
@@ -1360,8 +1363,14 @@ int Opcode::execute(u8 opcode)
     }
     case OpMode::LdHL_SP_r8: {
         const s8 displacement = static_cast<s8>(fetchByte());
-        m_regs.set16(Register16::HL,
-                     static_cast<u16>(m_regs.sp + displacement));
+        const u16 sp = m_regs.sp;
+        Flags f;
+        f.z = false;
+        f.n = false;
+        f.h = ((sp & 0x0F) + static_cast<int>(displacement & 0x0F)) > 0x0F;
+        f.c = ((sp & 0xFF) + static_cast<int>(displacement & 0xFF)) > 0xFF;
+        m_regs.set16(Register16::HL, static_cast<u16>(sp + displacement));
+        m_regs.f = f.toByte();
         break;
     }
     case OpMode::LdSP_HL:
@@ -1388,10 +1397,10 @@ int Opcode::executeCb(u8 opcode)
     if (operation < 8) {
         switch (operation) {
         case 0: // RLC
-            value = util::rotateLeft(value, false, carry);
+            value = util::rotateLeft(value, isBitSet(value, 7), carry);
             break;
         case 1: // RRC
-            value = util::rotateRight(value, false, carry);
+            value = util::rotateRight(value, isBitSet(value, 0), carry);
             break;
         case 2: // RL
             value = util::rotateLeft(value, f.c, carry);

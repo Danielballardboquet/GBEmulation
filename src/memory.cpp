@@ -304,10 +304,12 @@ u8 Memory::joypadState() const
     u8 direction = 0x0F;
     u8 buttons = 0x0F;
     if ((m_joypadSelect & 0x20) == 0) {
-        direction = static_cast<u8>(m_joypadButtons & 0x0F);
+        // P15 selected: return button bits (A, B, Select, Start)
+        buttons = static_cast<u8>((m_joypadButtons >> 4) & 0x0F);
     }
     if ((m_joypadSelect & 0x10) == 0) {
-        buttons = static_cast<u8>((m_joypadButtons >> 4) & 0x0F);
+        // P14 selected: return direction bits (Right, Left, Up, Down)
+        direction = static_cast<u8>(m_joypadButtons & 0x0F);
     }
     return static_cast<u8>(m_joypadSelect | (direction & buttons));
 }

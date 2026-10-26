@@ -141,16 +141,18 @@ void GameWindow::onUiAction(UiAction action)
 void GameWindow::toggleFullScreen()
 {
     if (isFullScreen()) {
-        setWindowFlag(Qt::FramelessWindowHint, false);
+        // showNormal() alone restores the native window frame; forcing the
+        // FramelessWindowHint flag off and on again left the title bar
+        // without its minimize/maximize/close buttons on Windows, so the
+        // flag is never touched here.
         showNormal();
         // Restore the toolbars that were hidden for the full screen view.
         QSettings settings;
         setMenuBarVisible(settings.value(QStringLiteral("ui/showMenuBar"), true).toBool());
         setToolBarVisible(settings.value(QStringLiteral("ui/showToolBar"), false).toBool());
     } else {
-        // Fullscreen must not show any window frame: force the frameless
-        // flag in addition to the Qt fullscreen resize.
-        setWindowFlag(Qt::FramelessWindowHint, true);
+        // showFullScreen() already removes the window frame; only hide the
+        // menu bar and toolbar to maximize the usable screen space.
         menuBar()->hide();
         if (m_toolBar) {
             m_toolBar->hide();
@@ -357,9 +359,9 @@ void GameWindow::saveBatteryRam()
     statusBar()->showMessage(tr("Battery RAM saved to %1").arg(path), 3000);
 }
 
-void GameWindow::saveState()
+void GameWindow::saveStateSlot(int slot)
 {
-    const QString path = currentStatePath();
+    const QString path = currentStatePath(slot);
     if (path.isEmpty()) {
         statusBar()->showMessage(tr("Load a ROM before saving a state"), 2500);
         return;
@@ -368,11 +370,15 @@ void GameWindow::saveState()
                               Q_ARG(QString, path));
 }
 
-void GameWindow::loadState()
+void GameWindow::loadStateSlot(int slot)
 {
-    const QString path = currentStatePath();
+    const QString path = currentStatePath(slot);
     if (path.isEmpty()) {
         statusBar()->showMessage(tr("Load a ROM before loading a state"), 2500);
+        return;
+    }
+    if (!QFileInfo::exists(path)) {
+        statusBar()->showMessage(tr("Slot %1 is empty").arg(slot), 2500);
         return;
     }
     QMetaObject::invokeMethod(m_worker, "loadState", Qt::QueuedConnection,
@@ -479,8 +485,12 @@ void GameWindow::onRomLoaded(const QString &title, const QString &mapper, int ro
     m_pauseAction->setEnabled(true);
     m_stepAction->setEnabled(false);
     m_frameAction->setEnabled(false);
-    m_saveStateAction->setEnabled(true);
-    m_loadStateAction->setEnabled(true);
+    for (QAction *action : m_saveStateActions) {
+        action->setEnabled(true);
+    }
+    for (QAction *action : m_loadStateActions) {
+        action->setEnabled(true);
+    }
 
     statusBar()->showMessage(
         tr("Loaded %1 (%2 ROM banks, %3 RAM banks)").arg(title).arg(romBanks).arg(ramBanks),
@@ -576,17 +586,27 @@ void GameWindow::createActions()
     m_screenshotAction->setStatusTip(tr("Save a PNG of the current screen"));
     connect(m_screenshotAction, &QAction::triggered, this, &GameWindow::takeScreenshot);
 
-    m_saveStateAction = new QAction(tr("&Save State"), this);
-    m_saveStateAction->setShortcut(QKeySequence(Qt::Key_F5));
-    m_saveStateAction->setStatusTip(tr("Save the machine state to a .state file next to the ROM"));
-    m_saveStateAction->setEnabled(false);
-    connect(m_saveStateAction, &QAction::triggered, this, &GameWindow::saveState);
+    QMenu *saveStateMenu = new QMenu(tr("&Save State"), this);
+    QMenu *loadStateMenu = new QMenu(tr("&Load State"), this);
+    for (int slot = 1; slot <= kSaveStateSlotCount; ++slot) {
+        QAction *saveAction = saveStateMenu->addAction(tr("Slot %1").arg(slot));
+        saveAction->setStatusTip(tr("Save the machine state to slot %1").arg(slot));
+        saveAction->setEnabled(false);
+        if (slot == 1) {
+            saveAction->setShortcut(QKeySequence(Qt::Key_F5));
+        }
+        connect(saveAction, &QAction::triggered, this, [this, slot]() { saveStateSlot(slot); });
+        m_saveStateActions[slot - 1] = saveAction;
 
-    m_loadStateAction = new QAction(tr("&Load State"), this);
-    m_loadStateAction->setShortcut(QKeySequence(Qt::Key_F9));
-    m_loadStateAction->setStatusTip(tr("Restore the machine state from a .state file next to the ROM"));
-    m_loadStateAction->setEnabled(false);
-    connect(m_loadStateAction, &QAction::triggered, this, &GameWindow::loadState);
+        QAction *loadAction = loadStateMenu->addAction(tr("Slot %1").arg(slot));
+        loadAction->setStatusTip(tr("Restore the machine state from slot %1").arg(slot));
+        loadAction->setEnabled(false);
+        if (slot == 1) {
+            loadAction->setShortcut(QKeySequence(Qt::Key_F9));
+        }
+        connect(loadAction, &QAction::triggered, this, [this, slot]() { loadStateSlot(slot); });
+        m_loadStateActions[slot - 1] = loadAction;
+    }
 
     m_debugAction = new QAction(tr("&Debugger"), this);
     m_debugAction->setCheckable(true);
@@ -637,8 +657,8 @@ void GameWindow::createActions()
     emulationMenu->addSeparator();
     emulationMenu->addAction(m_screenshotAction);
     emulationMenu->addSeparator();
-    emulationMenu->addAction(m_saveStateAction);
-    emulationMenu->addAction(m_loadStateAction);
+    emulationMenu->addMenu(saveStateMenu);
+    emulationMenu->addMenu(loadStateMenu);
 
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     viewMenu->addAction(m_debugAction);
@@ -978,15 +998,18 @@ QString GameWindow::currentSavePath() const
     return m_currentRom.isEmpty() ? QString() : savePathFor(m_currentRom);
 }
 
-QString GameWindow::statePathFor(const QString &romPath)
+QString GameWindow::statePathFor(const QString &romPath, int slot)
 {
     const QFileInfo info(romPath);
-    return info.absoluteDir().filePath(info.completeBaseName() + QStringLiteral(".state"));
+    const QString suffix = slot == 1
+        ? QStringLiteral(".state")
+        : QStringLiteral(".state%1").arg(slot);
+    return info.absoluteDir().filePath(info.completeBaseName() + suffix);
 }
 
-QString GameWindow::currentStatePath() const
+QString GameWindow::currentStatePath(int slot) const
 {
-    return m_currentRom.isEmpty() ? QString() : statePathFor(m_currentRom);
+    return m_currentRom.isEmpty() ? QString() : statePathFor(m_currentRom, slot);
 }
 
 } // namespace ui

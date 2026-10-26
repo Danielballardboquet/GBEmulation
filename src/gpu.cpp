@@ -524,8 +524,8 @@ void GPU::renderSprites(int line)
         const u8 palette = isBitSet(sprite.attr, 4) ? m_obp1 : m_obp0;
 
         for (int px = 0; px < 8; ++px) {
-            const int screenX = sprite.x + px;
-            if (screenX >= kScreenWidth) {
+            const int screenX = sprite.x - 8 + px;
+            if (screenX < 0 || screenX >= kScreenWidth) {
                 continue;
             }
             const int col = flipX ? 7 - px : px;

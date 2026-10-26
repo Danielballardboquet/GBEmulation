@@ -237,6 +237,7 @@ MainWindow::MainWindow(QWidget *parent)
     applySavedTheme();
 
     setWindowTitle(tr("Game Boy Library"));
+    setWindowIcon(QIcon(QStringLiteral(":/icon.png")));
     resize(720, 520);
 
     scanLibrary();

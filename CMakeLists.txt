@@ -44,7 +44,19 @@ add_executable(GB_emulator WIN32
     include/ui/PaletteDialog.h
     include/ui/SettingsDialog.h
     include/ui/Theme.h
+    resources.qrc
 )
+
+# Set application icon for Windows
+if(WIN32 AND MINGW)
+    # For MinGW, create a resource file
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/app.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/app.rc"
+        @ONLY
+    )
+    target_sources(GB_emulator PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/app.rc")
+endif()
 
 target_include_directories(GB_emulator PRIVATE include)
 

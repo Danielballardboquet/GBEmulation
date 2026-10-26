@@ -40,23 +40,23 @@ constexpr std::array<QRgb, 4> kDmgColors = {
 };
 
 /**
- * @brief Converts a stored RGBA value (R in the low byte) into a QColor.
+ * @brief Converts a stored RGBA value (R in the high byte) into a QColor.
  */
 QColor colorFromArgb(QRgb argb)
 {
-    return QColor::fromRgb(argb & 0xFF, (argb >> 8) & 0xFF,
-                           (argb >> 16) & 0xFF, (argb >> 24) & 0xFF);
+    return QColor::fromRgb((argb >> 24) & 0xFF, (argb >> 16) & 0xFF,
+                           (argb >> 8) & 0xFF, argb & 0xFF);
 }
 
 /**
- * @brief Converts a QColor into the stored RGBA layout.
+ * @brief Converts a QColor into the stored RGBA layout (R in the high byte).
  */
 QRgb colorToArgb(const QColor &color)
 {
-    return static_cast<QRgb>(color.red())
-         | (static_cast<QRgb>(color.green()) << 8)
-         | (static_cast<QRgb>(color.blue()) << 16)
-         | (static_cast<QRgb>(color.alpha()) << 24);
+    return (static_cast<QRgb>(color.red()) << 24)
+         | (static_cast<QRgb>(color.green()) << 16)
+         | (static_cast<QRgb>(color.blue()) << 8)
+         | static_cast<QRgb>(color.alpha());
 }
 
 /**

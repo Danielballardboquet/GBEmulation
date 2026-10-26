@@ -20,6 +20,9 @@
 
 #include <array>
 
+/** @brief Number of save state slots available per ROM. */
+constexpr int kSaveStateSlotCount = 10;
+
 class QAction;
 class QActionGroup;
 class QLabel;
@@ -116,14 +119,16 @@ private slots:
     void saveBatteryRam();
 
     /**
-     * @brief Saves the current machine state to the .state file next to the ROM.
+     * @brief Saves the current machine state to a numbered slot next to the ROM.
+     * @param slot Slot number, 1 to kSaveStateSlotCount.
      */
-    void saveState();
+    void saveStateSlot(int slot);
 
     /**
-     * @brief Loads the machine state from the .state file next to the ROM.
+     * @brief Loads the machine state from a numbered slot next to the ROM.
+     * @param slot Slot number, 1 to kSaveStateSlotCount.
      */
-    void loadState();
+    void loadStateSlot(int slot);
 
     /**
      * @brief Shows a status message after the machine state has been saved.
@@ -311,17 +316,19 @@ private:
     QString currentSavePath() const;
 
     /**
-     * @brief Returns the path of the .state file of a ROM.
+     * @brief Returns the path of the numbered state file of a ROM.
      * @param romPath Path of the ROM.
-     * @return The state file path (same name, .state extension).
+     * @param slot Slot number, 1 to kSaveStateSlotCount.
+     * @return The state file path (same name, .state&lt;slot&gt; extension).
      */
-    static QString statePathFor(const QString &romPath);
+    static QString statePathFor(const QString &romPath, int slot);
 
     /**
-     * @brief Returns the path of the state file of the current ROM.
+     * @brief Returns the path of the numbered state file of the current ROM.
+     * @param slot Slot number, 1 to kSaveStateSlotCount.
      * @return The state file path or an empty string.
      */
-    QString currentStatePath() const;
+    QString currentStatePath(int slot) const;
 
     QThread *m_thread = nullptr;            /**< Emulation thread. */
     EmulationWorker *m_worker = nullptr;    /**< Worker living on the thread. */
@@ -335,8 +342,8 @@ private:
     QAction *m_openAction = nullptr;        /**< File > Open. */
     QAction *m_reloadAction = nullptr;      /**< File > Reload. */
     QAction *m_saveAction = nullptr;        /**< File > Save RAM. */
-    QAction *m_saveStateAction = nullptr;   /**< Emulation > Save state. */
-    QAction *m_loadStateAction = nullptr;   /**< Emulation > Load state. */
+    std::array<QAction *, kSaveStateSlotCount> m_saveStateActions{}; /**< Emulation > Save State > Slot N. */
+    std::array<QAction *, kSaveStateSlotCount> m_loadStateActions{}; /**< Emulation > Load State > Slot N. */
     QAction *m_quitAction = nullptr;        /**< File > Quit. */
     QAction *m_resetAction = nullptr;       /**< Emulation > Reset. */
     QAction *m_pauseAction = nullptr;       /**< Emulation > Pause. */
