@@ -3,5 +3,14 @@
     <qresource>
         <file>icon.png</file>
         <file>icon.svg</file>
+        <!-- Runtime data, embedded so the program has its default look and
+             game database even when installed without the loose folders. -->
+        <file>style/style.qss</file>
+        <file>style/dark_cobalt.qss</file>
+        <file>style/dark_purple.qss</file>
+        <file>style/gb_classic.qss</file>
+        <file>style/neon.qss</file>
+        <file>style/polar_light.qss</file>
+        <file>data/games_database.json</file>
     </qresource>
 </RCC>

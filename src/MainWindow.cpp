@@ -709,6 +709,13 @@ void MainWindow::loadGameDatabase()
     candidates.append(appDir.filePath(QStringLiteral("games_database.json")));
     candidates.append(appParent.filePath(QStringLiteral("data/games_database.json")));
     candidates.append(QDir::current().filePath(QStringLiteral("data/games_database.json")));
+#ifdef GB_SOURCE_DATA_DIR
+    // Running from a build tree: the source folder holds the database.
+    candidates.append(QStringLiteral(GB_SOURCE_DATA_DIR "/games_database.json"));
+#endif
+    // Last resort: the copy compiled into the executable, so the library
+    // always has its game information even in a bare installation.
+    candidates.append(QStringLiteral(":/data/games_database.json"));
 
     QString path;
     for (const QString &candidate : candidates) {
